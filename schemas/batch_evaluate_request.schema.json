@@ -1,0 +1,326 @@
+{
+  "$defs": {
+    "ApprovedException": {
+      "additionalProperties": false,
+      "properties": {
+        "exception_id": {
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9._:@/-]{0,127}$",
+          "title": "Exception Id",
+          "type": "string"
+        },
+        "rule_id": {
+          "pattern": "^[A-Z][A-Z0-9]{1,15}(-[A-Z0-9]{1,20}){1,4}$",
+          "title": "Rule Id",
+          "type": "string"
+        },
+        "subject_ids": {
+          "items": {
+            "pattern": "^[A-Za-z0-9][A-Za-z0-9._:@/-]{0,127}$",
+            "type": "string"
+          },
+          "maxItems": 1000,
+          "minItems": 1,
+          "title": "Subject Ids",
+          "type": "array"
+        },
+        "approved_by": {
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9._:@/-]{0,127}$",
+          "title": "Approved By",
+          "type": "string"
+        },
+        "approved_at": {
+          "format": "date-time",
+          "title": "Approved At",
+          "type": "string"
+        },
+        "expires_at": {
+          "format": "date-time",
+          "title": "Expires At",
+          "type": "string"
+        }
+      },
+      "required": [
+        "exception_id",
+        "rule_id",
+        "subject_ids",
+        "approved_by",
+        "approved_at",
+        "expires_at"
+      ],
+      "title": "ApprovedException",
+      "type": "object"
+    },
+    "Completeness": {
+      "additionalProperties": false,
+      "properties": {
+        "expected_record_count": {
+          "anyOf": [
+            {
+              "minimum": 0,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Expected Record Count"
+        },
+        "received_record_count": {
+          "minimum": 0,
+          "title": "Received Record Count",
+          "type": "integer"
+        },
+        "source_complete": {
+          "title": "Source Complete",
+          "type": "boolean"
+        },
+        "collection_errors": {
+          "default": 0,
+          "minimum": 0,
+          "title": "Collection Errors",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "received_record_count",
+        "source_complete"
+      ],
+      "title": "Completeness",
+      "type": "object"
+    },
+    "EvaluationItem": {
+      "additionalProperties": false,
+      "description": "One evaluation, without the tenant (used inside batches).",
+      "properties": {
+        "item_reference": {
+          "anyOf": [
+            {
+              "pattern": "^[A-Za-z0-9][A-Za-z0-9._:@/-]{0,127}$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Item Reference"
+        },
+        "rule_id": {
+          "pattern": "^[A-Z][A-Z0-9]{1,15}(-[A-Z0-9]{1,20}){1,4}$",
+          "title": "Rule Id",
+          "type": "string"
+        },
+        "rule_version": {
+          "anyOf": [
+            {
+              "pattern": "^\\d{1,3}\\.\\d{1,3}$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Rule Version"
+        },
+        "evaluation_mode": {
+          "default": "CURRENT",
+          "enum": [
+            "CURRENT",
+            "HISTORICAL"
+          ],
+          "title": "Evaluation Mode",
+          "type": "string"
+        },
+        "reporting_period": {
+          "$ref": "#/$defs/ReportingPeriod"
+        },
+        "evidence": {
+          "$ref": "#/$defs/Evidence"
+        },
+        "policy_settings": {
+          "$ref": "#/$defs/PolicySettings"
+        },
+        "exceptions": {
+          "items": {
+            "$ref": "#/$defs/ApprovedException"
+          },
+          "maxItems": 1000,
+          "title": "Exceptions",
+          "type": "array"
+        }
+      },
+      "required": [
+        "rule_id",
+        "reporting_period",
+        "evidence"
+      ],
+      "title": "EvaluationItem",
+      "type": "object"
+    },
+    "Evidence": {
+      "additionalProperties": false,
+      "properties": {
+        "evidence_type": {
+          "enum": [
+            "credential_rotation",
+            "privileged_session",
+            "privileged_access_request",
+            "privileged_account",
+            "authentication_summary",
+            "access_authorization",
+            "break_glass_event",
+            "policy_exception",
+            "access_review",
+            "audit_log_coverage",
+            "mfa_configuration",
+            "privileged_access_authentication",
+            "session_policy_configuration"
+          ],
+          "title": "Evidence Type",
+          "type": "string"
+        },
+        "records": {
+          "items": {},
+          "maxItems": 100000,
+          "title": "Records",
+          "type": "array"
+        },
+        "completeness": {
+          "$ref": "#/$defs/Completeness"
+        }
+      },
+      "required": [
+        "evidence_type",
+        "records",
+        "completeness"
+      ],
+      "title": "Evidence",
+      "type": "object"
+    },
+    "PolicySettings": {
+      "additionalProperties": false,
+      "properties": {
+        "policy_version": {
+          "anyOf": [
+            {
+              "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Policy Version"
+        },
+        "effective_from": {
+          "anyOf": [
+            {
+              "format": "date-time",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Effective From"
+        },
+        "effective_to": {
+          "anyOf": [
+            {
+              "format": "date-time",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Effective To"
+        },
+        "parameters": {
+          "maxProperties": 50,
+          "patternProperties": {
+            "^[a-z][a-z0-9_]{0,63}$": {
+              "anyOf": [
+                {
+                  "type": "boolean"
+                },
+                {
+                  "type": "integer"
+                },
+                {
+                  "items": {
+                    "pattern": "^[a-z0-9][a-z0-9._:-]{0,63}$",
+                    "type": "string"
+                  },
+                  "type": "array"
+                }
+              ]
+            }
+          },
+          "title": "Parameters",
+          "type": "object"
+        },
+        "scope_tags": {
+          "items": {
+            "pattern": "^[a-z0-9][a-z0-9._:-]{0,63}$",
+            "type": "string"
+          },
+          "maxItems": 50,
+          "title": "Scope Tags",
+          "type": "array"
+        }
+      },
+      "title": "PolicySettings",
+      "type": "object"
+    },
+    "ReportingPeriod": {
+      "additionalProperties": false,
+      "properties": {
+        "start": {
+          "format": "date-time",
+          "title": "Start",
+          "type": "string"
+        },
+        "end": {
+          "format": "date-time",
+          "title": "End",
+          "type": "string"
+        }
+      },
+      "required": [
+        "start",
+        "end"
+      ],
+      "title": "ReportingPeriod",
+      "type": "object"
+    }
+  },
+  "additionalProperties": false,
+  "properties": {
+    "tenant_id": {
+      "pattern": "^[a-z0-9][a-z0-9-]{1,62}$",
+      "title": "Tenant Id",
+      "type": "string"
+    },
+    "items": {
+      "items": {
+        "$ref": "#/$defs/EvaluationItem"
+      },
+      "maxItems": 1000,
+      "minItems": 1,
+      "title": "Items",
+      "type": "array"
+    }
+  },
+  "required": [
+    "tenant_id",
+    "items"
+  ],
+  "title": "BatchEvaluateRequest",
+  "type": "object"
+}

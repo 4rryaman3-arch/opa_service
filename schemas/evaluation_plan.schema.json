@@ -1,0 +1,882 @@
+{
+  "$defs": {
+    "Affected": {
+      "additionalProperties": false,
+      "properties": {
+        "requirement_ids": {
+          "items": {
+            "type": "integer"
+          },
+          "title": "Requirement Ids",
+          "type": "array"
+        },
+        "mapping_ids": {
+          "items": {
+            "type": "integer"
+          },
+          "title": "Mapping Ids",
+          "type": "array"
+        },
+        "rule_ids": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Rule Ids",
+          "type": "array"
+        }
+      },
+      "required": [
+        "requirement_ids",
+        "mapping_ids",
+        "rule_ids"
+      ],
+      "title": "Affected",
+      "type": "object"
+    },
+    "Blocker": {
+      "additionalProperties": false,
+      "properties": {
+        "code": {
+          "title": "Code",
+          "type": "string"
+        },
+        "message": {
+          "title": "Message",
+          "type": "string"
+        },
+        "affected": {
+          "$ref": "#/$defs/Affected"
+        }
+      },
+      "required": [
+        "code",
+        "message",
+        "affected"
+      ],
+      "title": "Blocker",
+      "type": "object"
+    },
+    "PlanAggregation": {
+      "additionalProperties": false,
+      "properties": {
+        "mode": {
+          "const": "ALL",
+          "title": "Mode",
+          "type": "string"
+        },
+        "description": {
+          "title": "Description",
+          "type": "string"
+        }
+      },
+      "required": [
+        "mode",
+        "description"
+      ],
+      "title": "PlanAggregation",
+      "type": "object"
+    },
+    "PlanDocument": {
+      "additionalProperties": false,
+      "properties": {
+        "document": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Document"
+        },
+        "document_title": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Document Title"
+        },
+        "document_version": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Document Version"
+        },
+        "content_sha256": {
+          "title": "Content Sha256",
+          "type": "string"
+        },
+        "url": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Url"
+        },
+        "published_on": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Published On"
+        },
+        "language": {
+          "title": "Language",
+          "type": "string"
+        }
+      },
+      "required": [
+        "document",
+        "document_title",
+        "document_version",
+        "content_sha256",
+        "url",
+        "published_on",
+        "language"
+      ],
+      "title": "PlanDocument",
+      "type": "object"
+    },
+    "PlanExecution": {
+      "additionalProperties": false,
+      "properties": {
+        "execution_id": {
+          "title": "Execution Id",
+          "type": "string"
+        },
+        "rule_id": {
+          "title": "Rule Id",
+          "type": "string"
+        },
+        "rule_version": {
+          "title": "Rule Version",
+          "type": "string"
+        },
+        "parameters": {
+          "additionalProperties": true,
+          "description": "Reviewed values to send as policy_settings.parameters.",
+          "title": "Parameters",
+          "type": "object"
+        },
+        "override_constraints": {
+          "additionalProperties": true,
+          "description": "Per parameter: {min,max} for integers or {values:[...]} for booleans. A parameter that is absent here must be sent exactly as approved.",
+          "title": "Override Constraints",
+          "type": "object"
+        },
+        "rule_title": {
+          "title": "Rule Title",
+          "type": "string"
+        },
+        "rule_source": {
+          "title": "Rule Source",
+          "type": "string"
+        },
+        "severity": {
+          "title": "Severity",
+          "type": "string"
+        },
+        "evidence_type": {
+          "title": "Evidence Type",
+          "type": "string"
+        },
+        "evidence_requirements": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Evidence Requirements",
+          "type": "array"
+        },
+        "parameter_schema": {
+          "additionalProperties": true,
+          "title": "Parameter Schema",
+          "type": "object"
+        },
+        "rule_effective_from": {
+          "title": "Rule Effective From",
+          "type": "string"
+        },
+        "rule_effective_to": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Rule Effective To"
+        },
+        "evaluate_request": {
+          "additionalProperties": true,
+          "description": "Fields to copy into POST /api/v1/evaluate (add tenant_id, item_reference, reporting_period, evidence).",
+          "title": "Evaluate Request",
+          "type": "object"
+        },
+        "requirement_ids": {
+          "items": {
+            "type": "integer"
+          },
+          "title": "Requirement Ids",
+          "type": "array"
+        },
+        "mapping_ids": {
+          "items": {
+            "type": "integer"
+          },
+          "title": "Mapping Ids",
+          "type": "array"
+        }
+      },
+      "required": [
+        "execution_id",
+        "rule_id",
+        "rule_version",
+        "parameters",
+        "override_constraints",
+        "rule_title",
+        "rule_source",
+        "severity",
+        "evidence_type",
+        "evidence_requirements",
+        "parameter_schema",
+        "rule_effective_from",
+        "rule_effective_to",
+        "evaluate_request",
+        "requirement_ids",
+        "mapping_ids"
+      ],
+      "title": "PlanExecution",
+      "type": "object"
+    },
+    "PlanFramework": {
+      "additionalProperties": false,
+      "properties": {
+        "framework_id": {
+          "title": "Framework Id",
+          "type": "string"
+        },
+        "title": {
+          "title": "Title",
+          "type": "string"
+        },
+        "kind": {
+          "title": "Kind",
+          "type": "string"
+        },
+        "adoption": {
+          "title": "Adoption",
+          "type": "string"
+        },
+        "jurisdiction_code": {
+          "title": "Jurisdiction Code",
+          "type": "string"
+        },
+        "review_status": {
+          "enum": [
+            "PENDING",
+            "APPROVED",
+            "REJECTED"
+          ],
+          "title": "Review Status",
+          "type": "string"
+        },
+        "verification_status": {
+          "title": "Verification Status",
+          "type": "string"
+        },
+        "lifecycle": {
+          "title": "Lifecycle",
+          "type": "string"
+        },
+        "published_on": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Published On"
+        },
+        "effective_from": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Effective From"
+        },
+        "effective_to": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Effective To"
+        },
+        "documents": {
+          "items": {
+            "$ref": "#/$defs/PlanDocument"
+          },
+          "title": "Documents",
+          "type": "array"
+        }
+      },
+      "required": [
+        "framework_id",
+        "title",
+        "kind",
+        "adoption",
+        "jurisdiction_code",
+        "review_status",
+        "verification_status",
+        "lifecycle",
+        "published_on",
+        "effective_from",
+        "effective_to",
+        "documents"
+      ],
+      "title": "PlanFramework",
+      "type": "object"
+    },
+    "PlanMapping": {
+      "additionalProperties": false,
+      "properties": {
+        "mapping_id": {
+          "title": "Mapping Id",
+          "type": "integer"
+        },
+        "mapping_key": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Mapping Key"
+        },
+        "mapping_version": {
+          "title": "Mapping Version",
+          "type": "integer"
+        },
+        "assessment": {
+          "enum": [
+            "AUTOMATED",
+            "MANUAL",
+            "CONTROL_REFERENCE"
+          ],
+          "title": "Assessment",
+          "type": "string"
+        },
+        "pam_control_id": {
+          "title": "Pam Control Id",
+          "type": "string"
+        },
+        "control_reference": {
+          "title": "Control Reference",
+          "type": "string"
+        },
+        "coverage": {
+          "anyOf": [
+            {
+              "enum": [
+                "FULL",
+                "PARTIAL"
+              ],
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Coverage"
+        },
+        "strength": {
+          "title": "Strength",
+          "type": "string"
+        },
+        "rationale": {
+          "title": "Rationale",
+          "type": "string"
+        },
+        "limitations": {
+          "title": "Limitations",
+          "type": "string"
+        },
+        "rule_id": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Rule Id"
+        },
+        "rule_version_min": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Rule Version Min"
+        },
+        "rule_version_max": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Rule Version Max"
+        },
+        "execution_id": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Execution Id"
+        },
+        "blocker_codes": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Blocker Codes",
+          "type": "array"
+        },
+        "review_status": {
+          "const": "APPROVED",
+          "title": "Review Status",
+          "type": "string"
+        },
+        "reviewer": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Reviewer"
+        },
+        "approved_at": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Approved At"
+        },
+        "published_in": {
+          "title": "Published In",
+          "type": "integer"
+        },
+        "created_by": {
+          "title": "Created By",
+          "type": "string"
+        }
+      },
+      "required": [
+        "mapping_id",
+        "mapping_key",
+        "mapping_version",
+        "assessment",
+        "pam_control_id",
+        "control_reference",
+        "coverage",
+        "strength",
+        "rationale",
+        "limitations",
+        "rule_id",
+        "rule_version_min",
+        "rule_version_max",
+        "execution_id",
+        "blocker_codes",
+        "review_status",
+        "reviewer",
+        "approved_at",
+        "published_in",
+        "created_by"
+      ],
+      "title": "PlanMapping",
+      "type": "object"
+    },
+    "PlanRequirement": {
+      "additionalProperties": false,
+      "properties": {
+        "requirement_id": {
+          "title": "Requirement Id",
+          "type": "integer"
+        },
+        "requirement_digest": {
+          "title": "Requirement Digest",
+          "type": "string"
+        },
+        "control_reference": {
+          "title": "Control Reference",
+          "type": "string"
+        },
+        "obligation_type": {
+          "title": "Obligation Type",
+          "type": "string"
+        },
+        "pam_domains": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Pam Domains",
+          "type": "array"
+        },
+        "original_language": {
+          "title": "Original Language",
+          "type": "string"
+        },
+        "original_text": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Original Text"
+        },
+        "text_withheld_reason": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Text Withheld Reason"
+        },
+        "source_reference": {
+          "additionalProperties": true,
+          "title": "Source Reference",
+          "type": "object"
+        },
+        "effective_from": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Effective From"
+        },
+        "effective_to": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Effective To"
+        },
+        "published_in": {
+          "title": "Published In",
+          "type": "integer"
+        },
+        "assessment": {
+          "enum": [
+            "AUTOMATED",
+            "MANUAL",
+            "UNMAPPED",
+            "BLOCKED"
+          ],
+          "title": "Assessment",
+          "type": "string"
+        },
+        "technical_coverage": {
+          "enum": [
+            "FULL",
+            "PARTIAL",
+            "NONE"
+          ],
+          "title": "Technical Coverage",
+          "type": "string"
+        },
+        "requires_manual_assessment": {
+          "title": "Requires Manual Assessment",
+          "type": "boolean"
+        },
+        "aggregation": {
+          "const": "ALL",
+          "title": "Aggregation",
+          "type": "string"
+        },
+        "execution_ids": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Execution Ids",
+          "type": "array"
+        },
+        "mappings": {
+          "items": {
+            "$ref": "#/$defs/PlanMapping"
+          },
+          "title": "Mappings",
+          "type": "array"
+        },
+        "policy_resolution": {
+          "anyOf": [
+            {
+              "additionalProperties": true,
+              "type": "object"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Policy Resolution"
+        }
+      },
+      "required": [
+        "requirement_id",
+        "requirement_digest",
+        "control_reference",
+        "obligation_type",
+        "pam_domains",
+        "original_language",
+        "original_text",
+        "text_withheld_reason",
+        "source_reference",
+        "effective_from",
+        "effective_to",
+        "published_in",
+        "assessment",
+        "technical_coverage",
+        "requires_manual_assessment",
+        "aggregation",
+        "execution_ids",
+        "mappings"
+      ],
+      "title": "PlanRequirement",
+      "type": "object"
+    },
+    "PlanTotals": {
+      "additionalProperties": false,
+      "properties": {
+        "published_requirements": {
+          "title": "Published Requirements",
+          "type": "integer"
+        },
+        "automated_requirements": {
+          "title": "Automated Requirements",
+          "type": "integer"
+        },
+        "manual_requirements": {
+          "title": "Manual Requirements",
+          "type": "integer"
+        },
+        "unmapped_requirements": {
+          "title": "Unmapped Requirements",
+          "type": "integer"
+        },
+        "blocked_requirements": {
+          "title": "Blocked Requirements",
+          "type": "integer"
+        },
+        "mapping_count": {
+          "title": "Mapping Count",
+          "type": "integer"
+        },
+        "execution_count": {
+          "title": "Execution Count",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "published_requirements",
+        "automated_requirements",
+        "manual_requirements",
+        "unmapped_requirements",
+        "blocked_requirements",
+        "mapping_count",
+        "execution_count"
+      ],
+      "title": "PlanTotals",
+      "type": "object"
+    }
+  },
+  "additionalProperties": false,
+  "properties": {
+    "schema_version": {
+      "title": "Schema Version",
+      "type": "string"
+    },
+    "catalog_version": {
+      "title": "Catalog Version",
+      "type": "integer"
+    },
+    "framework": {
+      "$ref": "#/$defs/PlanFramework"
+    },
+    "tenant_id": {
+      "title": "Tenant Id",
+      "type": "string"
+    },
+    "as_of": {
+      "title": "As Of",
+      "type": "string"
+    },
+    "policy_bundle_version": {
+      "title": "Policy Bundle Version",
+      "type": "string"
+    },
+    "readiness": {
+      "enum": [
+        "NOT_READY",
+        "PARTIAL",
+        "READY"
+      ],
+      "title": "Readiness",
+      "type": "string"
+    },
+    "totals": {
+      "$ref": "#/$defs/PlanTotals"
+    },
+    "blockers": {
+      "items": {
+        "$ref": "#/$defs/Blocker"
+      },
+      "title": "Blockers",
+      "type": "array"
+    },
+    "aggregation": {
+      "$ref": "#/$defs/PlanAggregation"
+    },
+    "requirements": {
+      "items": {
+        "$ref": "#/$defs/PlanRequirement"
+      },
+      "title": "Requirements",
+      "type": "array"
+    },
+    "executions": {
+      "items": {
+        "$ref": "#/$defs/PlanExecution"
+      },
+      "title": "Executions",
+      "type": "array"
+    },
+    "digest_input": {
+      "additionalProperties": true,
+      "title": "Digest Input",
+      "type": "object"
+    },
+    "plan_digest": {
+      "title": "Plan Digest",
+      "type": "string"
+    },
+    "digest_algorithm": {
+      "title": "Digest Algorithm",
+      "type": "string"
+    },
+    "generated_at": {
+      "title": "Generated At",
+      "type": "string"
+    },
+    "mapping_disclaimer": {
+      "title": "Mapping Disclaimer",
+      "type": "string"
+    },
+    "organization_scope": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Organization Scope"
+    },
+    "policy_context": {
+      "anyOf": [
+        {
+          "additionalProperties": true,
+          "type": "object"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Policy Context"
+    }
+  },
+  "required": [
+    "schema_version",
+    "catalog_version",
+    "framework",
+    "tenant_id",
+    "as_of",
+    "policy_bundle_version",
+    "readiness",
+    "totals",
+    "blockers",
+    "aggregation",
+    "requirements",
+    "executions",
+    "digest_input",
+    "plan_digest",
+    "digest_algorithm",
+    "generated_at",
+    "mapping_disclaimer"
+  ],
+  "title": "PlanResponse",
+  "type": "object"
+}

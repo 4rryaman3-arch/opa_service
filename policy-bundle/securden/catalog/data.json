@@ -1,0 +1,433 @@
+{
+  "framework_mapping_disclaimer": "Framework mappings indicate which ISO/IEC 27001:2022 Annex A controls or AICPA SOC 2 Trust Services Criteria a control test provides evidence toward. They are not certification, attestation, or audit conclusions; only an accredited certification body or licensed CPA firm can make those determinations.",
+  "rules": {
+    "PAM-ROTATION-001": {
+      "title": "Privileged password rotation interval",
+      "subject_field": "account_id",
+      "versions": {
+        "1.0": {
+          "status": "RETIRED",
+          "effective_from": "2025-01-01T00:00:00Z",
+          "effective_to": "2026-07-01T00:00:00Z",
+          "package": "securden.rules.pam_rotation_001.v1_0",
+          "severity": "HIGH",
+          "description": "Every in-scope privileged account must have had its credential rotated within the maximum allowed interval as of the end of the reporting period. Accounts never rotated are violations.",
+          "evidence_type": "credential_rotation",
+          "evidence_requirements": [
+            "One record per privileged account managed by Securden in the reporting scope",
+            "last_rotated_at for each account (null when never rotated)",
+            "Completeness metadata comparing received records with the Securden account inventory count"
+          ],
+          "parameters": {
+            "max_rotation_age_days": {"type": "integer", "default": 90, "min": 1, "max": 730, "description": "Maximum allowed age of a privileged credential in days."}
+          },
+          "framework_mappings": [
+            {"framework": "ISO27001:2022", "control": "5.17", "title": "Authentication information"},
+            {"framework": "ISO27001:2022", "control": "8.2", "title": "Privileged access rights"},
+            {"framework": "SOC2-TSC-2017", "control": "CC6.1", "title": "Logical access security"}
+          ],
+          "remediation": "Rotate the credentials of the listed accounts through Securden, then verify the rotation schedule for the account's password policy is enabled and succeeding."
+        },
+        "1.1": {
+          "status": "ACTIVE",
+          "effective_from": "2026-07-01T00:00:00Z",
+          "effective_to": null,
+          "package": "securden.rules.pam_rotation_001.v1_1",
+          "severity": "HIGH",
+          "description": "Every in-scope privileged account must have had its credential successfully rotated within the maximum allowed interval as of the end of the reporting period. Version 1.1 additionally treats a failed most-recent rotation attempt as a violation.",
+          "evidence_type": "credential_rotation",
+          "evidence_requirements": [
+            "One record per privileged account managed by Securden in the reporting scope",
+            "last_rotated_at (last successful rotation; null when never rotated)",
+            "last_rotation_status of the most recent rotation attempt",
+            "Completeness metadata comparing received records with the Securden account inventory count"
+          ],
+          "parameters": {
+            "max_rotation_age_days": {"type": "integer", "default": 90, "min": 1, "max": 730, "description": "Maximum allowed age of a privileged credential in days."}
+          },
+          "framework_mappings": [
+            {"framework": "ISO27001:2022", "control": "5.17", "title": "Authentication information"},
+            {"framework": "ISO27001:2022", "control": "8.2", "title": "Privileged access rights"},
+            {"framework": "SOC2-TSC-2017", "control": "CC6.1", "title": "Logical access security"}
+          ],
+          "remediation": "Rotate the credentials of the listed accounts through Securden. For failed rotations, inspect the remote-password-reset error for the target system, fix connectivity or permissions, and re-run rotation."
+        }
+      }
+    },
+    "PAM-SESSREC-001": {
+      "title": "Privileged sessions missing required recordings",
+      "subject_field": "session_id",
+      "versions": {
+        "1.0": {
+          "status": "ACTIVE",
+          "effective_from": "2025-01-01T00:00:00Z",
+          "effective_to": null,
+          "package": "securden.rules.pam_sessrec_001.v1_0",
+          "severity": "HIGH",
+          "description": "Every privileged session that started in the reporting period and requires recording must have an available, complete recording.",
+          "evidence_type": "privileged_session",
+          "evidence_requirements": [
+            "One record per privileged session started in the reporting period",
+            "recording_required flag derived from the Securden session recording policy",
+            "recording_status (recording reference identifiers only, never recording content)"
+          ],
+          "parameters": {
+            "accept_partial_recordings": {"type": "boolean", "default": false, "description": "Treat PARTIAL recordings as compliant."}
+          },
+          "framework_mappings": [
+            {"framework": "ISO27001:2022", "control": "8.2", "title": "Privileged access rights"},
+            {"framework": "ISO27001:2022", "control": "8.15", "title": "Logging"},
+            {"framework": "SOC2-TSC-2017", "control": "CC7.2", "title": "System monitoring"}
+          ],
+          "remediation": "Investigate why recording failed for the listed sessions (recording server storage, gateway connectivity), review the session activity through alternate logs, and enforce 'block session if recording fails' in Securden where supported."
+        }
+      }
+    },
+    "PAM-APPROVAL-001": {
+      "title": "Privileged access without required approval",
+      "subject_field": "access_id",
+      "versions": {
+        "1.0": {
+          "status": "ACTIVE",
+          "effective_from": "2025-01-01T00:00:00Z",
+          "effective_to": null,
+          "package": "securden.rules.pam_approval_001.v1_0",
+          "severity": "CRITICAL",
+          "description": "Every privileged access event that requires approval must be preceded by an APPROVED request, granted by someone other than the requester, within the maximum approval age.",
+          "evidence_type": "privileged_access_request",
+          "evidence_requirements": [
+            "One record per privileged access event in the reporting period",
+            "approval_required flag from the Securden access-request workflow policy",
+            "approval_status, approved_at, approver_id and requester user_id"
+          ],
+          "parameters": {
+            "max_approval_age_hours": {"type": "integer", "default": 24, "min": 1, "max": 720, "description": "Maximum hours between approval and access."}
+          },
+          "framework_mappings": [
+            {"framework": "ISO27001:2022", "control": "5.18", "title": "Access rights"},
+            {"framework": "ISO27001:2022", "control": "8.2", "title": "Privileged access rights"},
+            {"framework": "SOC2-TSC-2017", "control": "CC6.2", "title": "User registration and authorization"},
+            {"framework": "SOC2-TSC-2017", "control": "CC6.3", "title": "Role-based access and least privilege"}
+          ],
+          "remediation": "Review each listed access event with the account owner, confirm whether it was legitimate, and enforce the access-request workflow (no self-approval) for the affected accounts."
+        }
+      }
+    },
+    "PAM-DORMANT-001": {
+      "title": "Dormant privileged accounts",
+      "subject_field": "account_id",
+      "versions": {
+        "1.0": {
+          "status": "ACTIVE",
+          "effective_from": "2025-01-01T00:00:00Z",
+          "effective_to": null,
+          "package": "securden.rules.pam_dormant_001.v1_0",
+          "severity": "MEDIUM",
+          "description": "Enabled privileged accounts must not be unused for longer than the dormancy threshold as of the end of the reporting period. Never-used accounts are measured from creation.",
+          "evidence_type": "privileged_account",
+          "evidence_requirements": [
+            "One record per privileged account in the reporting scope",
+            "enabled flag, created_at and last_used_at (null when never used)"
+          ],
+          "parameters": {
+            "dormant_after_days": {"type": "integer", "default": 90, "min": 1, "max": 730, "description": "Days without use after which an enabled account is dormant."}
+          },
+          "framework_mappings": [
+            {"framework": "ISO27001:2022", "control": "5.18", "title": "Access rights"},
+            {"framework": "ISO27001:2022", "control": "8.2", "title": "Privileged access rights"},
+            {"framework": "SOC2-TSC-2017", "control": "CC6.2", "title": "User registration and authorization"}
+          ],
+          "remediation": "Disable or remove the listed accounts, or document a business justification and approved exception for accounts that must remain enabled."
+        }
+      }
+    },
+    "PAM-AUTHFAIL-001": {
+      "title": "Excessive failed authentication attempts",
+      "subject_field": "principal_id",
+      "versions": {
+        "1.0": {
+          "status": "ACTIVE",
+          "effective_from": "2025-01-01T00:00:00Z",
+          "effective_to": null,
+          "package": "securden.rules.pam_authfail_001.v1_0",
+          "severity": "HIGH",
+          "description": "No principal may exceed the maximum number of failed authentication attempts within a single aggregation window. Securden sends pre-aggregated per-principal window counts rather than raw login events.",
+          "evidence_type": "authentication_summary",
+          "evidence_requirements": [
+            "One record per principal per aggregation window in the reporting period",
+            "failed_attempts count and the window bounds",
+            "Windows must not be longer than the configured window_minutes"
+          ],
+          "parameters": {
+            "max_failed_attempts": {"type": "integer", "default": 5, "min": 1, "max": 1000, "description": "Maximum allowed failed attempts per window."},
+            "window_minutes": {"type": "integer", "default": 15, "min": 1, "max": 1440, "description": "Maximum length of an aggregation window."},
+            "lockout_is_mitigation": {"type": "boolean", "default": false, "description": "Do not count windows where the account lockout triggered."}
+          },
+          "framework_mappings": [
+            {"framework": "ISO27001:2022", "control": "8.5", "title": "Secure authentication"},
+            {"framework": "ISO27001:2022", "control": "8.16", "title": "Monitoring activities"},
+            {"framework": "SOC2-TSC-2017", "control": "CC6.1", "title": "Logical access security"},
+            {"framework": "SOC2-TSC-2017", "control": "CC7.2", "title": "System monitoring"}
+          ],
+          "remediation": "Investigate the listed principals for brute-force or credential-stuffing activity, verify account lockout and MFA are enforced, and block offending source addresses where appropriate."
+        }
+      }
+    },
+    "PAM-UNAUTH-001": {
+      "title": "Unauthorized privileged access",
+      "subject_field": "access_id",
+      "versions": {
+        "1.0": {
+          "status": "ACTIVE",
+          "effective_from": "2025-01-01T00:00:00Z",
+          "effective_to": null,
+          "package": "securden.rules.pam_unauth_001.v1_0",
+          "severity": "CRITICAL",
+          "description": "Every privileged access event must be backed by an AUTHORIZED entitlement that was valid at the time of access. UNKNOWN entitlement status makes the result undeterminable for that record.",
+          "evidence_type": "access_authorization",
+          "evidence_requirements": [
+            "One record per privileged access event in the reporting period",
+            "entitlement_status at time of access and entitlement validity window"
+          ],
+          "parameters": {},
+          "framework_mappings": [
+            {"framework": "ISO27001:2022", "control": "5.15", "title": "Access control"},
+            {"framework": "ISO27001:2022", "control": "5.18", "title": "Access rights"},
+            {"framework": "ISO27001:2022", "control": "8.2", "title": "Privileged access rights"},
+            {"framework": "SOC2-TSC-2017", "control": "CC6.1", "title": "Logical access security"},
+            {"framework": "SOC2-TSC-2017", "control": "CC6.3", "title": "Role-based access and least privilege"}
+          ],
+          "remediation": "Treat listed events as potential security incidents: confirm with the account owner, revoke stale entitlements, and review how access was obtained without a valid entitlement."
+        }
+      }
+    },
+    "PAM-BREAKGLASS-001": {
+      "title": "Break-glass access without required justification",
+      "subject_field": "event_id",
+      "versions": {
+        "1.0": {
+          "status": "ACTIVE",
+          "effective_from": "2025-01-01T00:00:00Z",
+          "effective_to": null,
+          "package": "securden.rules.pam_breakglass_001.v1_0",
+          "severity": "HIGH",
+          "description": "Every break-glass (emergency) activation must carry a justification of minimum length, optionally a ticket reference, and a completed post-use review within the review window.",
+          "evidence_type": "break_glass_event",
+          "evidence_requirements": [
+            "One record per break-glass activation in the reporting period",
+            "justification_provided and justification_length (never the justification text)",
+            "ticket_reference identifier, post_review_completed and post_review_at"
+          ],
+          "parameters": {
+            "min_justification_length": {"type": "integer", "default": 20, "min": 1, "max": 2000, "description": "Minimum justification length in characters."},
+            "require_ticket_reference": {"type": "boolean", "default": true, "description": "Require an incident/change ticket reference."},
+            "post_review_within_hours": {"type": "integer", "default": 72, "min": 0, "max": 2160, "description": "Hours after activation by which a post-use review must be complete. 0 disables the check."}
+          },
+          "framework_mappings": [
+            {"framework": "ISO27001:2022", "control": "5.18", "title": "Access rights"},
+            {"framework": "ISO27001:2022", "control": "8.2", "title": "Privileged access rights"},
+            {"framework": "SOC2-TSC-2017", "control": "CC6.1", "title": "Logical access security"},
+            {"framework": "SOC2-TSC-2017", "control": "CC6.2", "title": "User registration and authorization"}
+          ],
+          "remediation": "Obtain retroactive justification and a ticket for each listed activation, complete the post-use review, and rotate the emergency credential."
+        }
+      }
+    },
+    "PAM-EXCEPTION-001": {
+      "title": "Expired policy exceptions",
+      "subject_field": "exception_id",
+      "versions": {
+        "1.0": {
+          "status": "ACTIVE",
+          "effective_from": "2025-01-01T00:00:00Z",
+          "effective_to": null,
+          "package": "securden.rules.pam_exception_001.v1_0",
+          "severity": "MEDIUM",
+          "description": "Policy exceptions must not remain ACTIVE after expiry, must not be used after expiry, and must not be granted for longer than the maximum exception duration.",
+          "evidence_type": "policy_exception",
+          "evidence_requirements": [
+            "One record per policy exception that was in effect at any time during the reporting period",
+            "status, approved_at, expires_at and last_used_at"
+          ],
+          "parameters": {
+            "max_exception_duration_days": {"type": "integer", "default": 365, "min": 1, "max": 1095, "description": "Maximum allowed exception duration in days."}
+          },
+          "framework_mappings": [
+            {"framework": "ISO27001:2022", "control": "5.36", "title": "Compliance with policies, rules and standards for information security"},
+            {"framework": "SOC2-TSC-2017", "control": "CC5.3", "title": "Control activities deployed through policies"}
+          ],
+          "remediation": "Expire or revoke the listed exceptions in Securden, re-apply the standard policy to the affected resources, and re-approve with a bounded duration if still needed."
+        }
+      }
+    },
+    "PAM-REVIEW-001": {
+      "title": "Missing privileged access reviews",
+      "subject_field": "account_id",
+      "versions": {
+        "1.0": {
+          "status": "ACTIVE",
+          "effective_from": "2025-01-01T00:00:00Z",
+          "effective_to": null,
+          "package": "securden.rules.pam_review_001.v1_0",
+          "severity": "MEDIUM",
+          "description": "Every in-scope privileged account must have a completed (CERTIFIED or REVOKED) access review within the review interval as of the end of the reporting period, performed by a reviewer other than the account owner.",
+          "evidence_type": "access_review",
+          "evidence_requirements": [
+            "One record per privileged account in the reporting scope",
+            "last_review_completed_at, review_outcome, reviewer_id and owner_id"
+          ],
+          "parameters": {
+            "review_interval_days": {"type": "integer", "default": 90, "min": 1, "max": 730, "description": "Maximum days since the last completed review."}
+          },
+          "framework_mappings": [
+            {"framework": "ISO27001:2022", "control": "5.18", "title": "Access rights"},
+            {"framework": "ISO27001:2022", "control": "8.2", "title": "Privileged access rights"},
+            {"framework": "SOC2-TSC-2017", "control": "CC6.2", "title": "User registration and authorization"},
+            {"framework": "SOC2-TSC-2017", "control": "CC6.3", "title": "Role-based access and least privilege"}
+          ],
+          "remediation": "Launch an access certification campaign for the listed accounts and ensure reviewers are independent of the account owners."
+        }
+      }
+    },
+    "PAM-AUDITCOMP-001": {
+      "title": "Audit evidence completeness",
+      "subject_field": "source_id",
+      "versions": {
+        "1.0": {
+          "status": "ACTIVE",
+          "effective_from": "2025-01-01T00:00:00Z",
+          "effective_to": null,
+          "package": "securden.rules.pam_auditcomp_001.v1_0",
+          "severity": "HIGH",
+          "description": "Every audit log source must cover the whole reporting period, deliver at least the minimum percentage of expected events, have no gap longer than allowed, and pass integrity verification.",
+          "evidence_type": "audit_log_coverage",
+          "evidence_requirements": [
+            "One record per audit log source for the reporting period",
+            "coverage window, expected and received event counts, max observed gap, integrity verification result"
+          ],
+          "parameters": {
+            "min_completeness_percent": {"type": "integer", "default": 100, "min": 1, "max": 100, "description": "Minimum received/expected event percentage."},
+            "max_allowed_gap_seconds": {"type": "integer", "default": 300, "min": 0, "max": 604800, "description": "Longest tolerated gap between consecutive audit events."},
+            "require_integrity_verification": {"type": "boolean", "default": true, "description": "Require the hash-chain / integrity check to have passed."}
+          },
+          "framework_mappings": [
+            {"framework": "ISO27001:2022", "control": "8.15", "title": "Logging"},
+            {"framework": "SOC2-TSC-2017", "control": "CC4.1", "title": "Monitoring of controls"},
+            {"framework": "SOC2-TSC-2017", "control": "CC7.2", "title": "System monitoring"}
+          ],
+          "remediation": "Investigate the listed sources for collection outages or tampering, backfill missing audit events from the source system if possible, and document unrecoverable gaps."
+        }
+      }
+    },
+    "PAM-MFACFG-001": {
+      "title": "MFA enforcement configured for privileged principals",
+      "subject_field": "principal_id",
+      "versions": {
+        "1.0": {
+          "status": "ACTIVE",
+          "effective_from": "2025-01-01T00:00:00Z",
+          "effective_to": null,
+          "package": "securden.rules.pam_mfacfg_001.v1_0",
+          "severity": "HIGH",
+          "description": "Configuration snapshot: every enabled privileged principal must have MFA enforced with at least one accepted method in a snapshot captured within the reporting period. A passing result describes the configuration at the snapshot instant only; it does not show that MFA was performed at each access (see PAM-MFAACC-001) and is unrelated to failed-logon monitoring (PAM-AUTHFAIL-001).",
+          "evidence_type": "mfa_configuration",
+          "evidence_requirements": [
+            "One record per enabled privileged user or account in the target set",
+            "mfa_enforced and the enforced mfa_methods from the Securden authentication policy",
+            "captured_at of the configuration snapshot (must lie inside the reporting period)",
+            "Completeness metadata comparing received records with the resolved target-set size"
+          ],
+          "parameters": {
+            "accepted_methods": {"type": "enum_list", "default": null, "items": ["email_otp", "fido2", "hardware_token", "push", "smart_card", "sms", "totp"], "description": "MFA methods the organization accepts. No default: the policy must state them."}
+          },
+          "framework_mappings": [
+            {"framework": "ISO27001:2022", "control": "8.5", "title": "Secure authentication"},
+            {"framework": "SOC2-TSC-2017", "control": "CC6.1", "title": "Logical access security"}
+          ],
+          "remediation": "Enforce MFA with an accepted method in the Securden authentication policy for the listed principals, then capture a new configuration snapshot."
+        }
+      }
+    },
+    "PAM-MFAACC-001": {
+      "title": "Privileged access granted without accepted MFA",
+      "subject_field": "access_id",
+      "versions": {
+        "1.0": {
+          "status": "ACTIVE",
+          "effective_from": "2025-01-01T00:00:00Z",
+          "effective_to": null,
+          "package": "securden.rules.pam_mfaacc_001.v1_0",
+          "severity": "CRITICAL",
+          "description": "Event history: every privileged access granted in the reporting period must have been preceded by a verified MFA challenge with an accepted method. Failed-logon counts are not MFA evidence.",
+          "evidence_type": "privileged_access_authentication",
+          "evidence_requirements": [
+            "One record per privileged access (granted or refused) that started in the reporting period",
+            "mfa_status and mfa_method of the authentication that preceded the access",
+            "Completeness metadata comparing received records with the Securden access log count"
+          ],
+          "parameters": {
+            "accepted_methods": {"type": "enum_list", "default": null, "items": ["email_otp", "fido2", "hardware_token", "push", "smart_card", "sms", "totp"], "description": "MFA methods the organization accepts. No default: the policy must state them."}
+          },
+          "framework_mappings": [
+            {"framework": "ISO27001:2022", "control": "8.5", "title": "Secure authentication"},
+            {"framework": "SOC2-TSC-2017", "control": "CC6.1", "title": "Logical access security"}
+          ],
+          "remediation": "Review the listed accesses, enforce MFA for the affected users and accounts, and investigate any access granted after a failed or skipped MFA challenge."
+        }
+      }
+    },
+    "PAM-SESSIDLE-001": {
+      "title": "Privileged session idle timeout configuration",
+      "subject_field": "policy_id",
+      "versions": {
+        "1.0": {
+          "status": "ACTIVE",
+          "effective_from": "2025-01-01T00:00:00Z",
+          "effective_to": null,
+          "package": "securden.rules.pam_sessidle_001.v1_0",
+          "severity": "MEDIUM",
+          "description": "Configuration snapshot: every session policy that applies to privileged sessions must enable an idle timeout no longer than the maximum, in a snapshot captured within the reporting period. It describes configuration at the snapshot instant, not the idle behaviour of individual sessions.",
+          "evidence_type": "session_policy_configuration",
+          "evidence_requirements": [
+            "One record per session policy in the target set",
+            "idle_timeout_enabled and idle_timeout_minutes of the policy",
+            "captured_at of the configuration snapshot (must lie inside the reporting period)"
+          ],
+          "parameters": {
+            "max_idle_minutes": {"type": "integer", "default": null, "min": 1, "max": 1440, "description": "Longest permitted idle time before a privileged session is locked or terminated. No default."}
+          },
+          "framework_mappings": [
+            {"framework": "ISO27001:2022", "control": "8.5", "title": "Secure authentication"}
+          ],
+          "remediation": "Enable the idle timeout on the listed session policies and set it to at most the policy maximum."
+        }
+      }
+    },
+    "PAM-SESSDUR-001": {
+      "title": "Privileged sessions exceeding the maximum duration",
+      "subject_field": "session_id",
+      "versions": {
+        "1.0": {
+          "status": "ACTIVE",
+          "effective_from": "2025-01-01T00:00:00Z",
+          "effective_to": null,
+          "package": "securden.rules.pam_sessdur_001.v1_0",
+          "severity": "MEDIUM",
+          "description": "Event history: no privileged session that started in the reporting period may last longer than the maximum. A session still open at the end of the period is measured up to the period end.",
+          "evidence_type": "privileged_session",
+          "evidence_requirements": [
+            "One record per privileged session started in the reporting period",
+            "started_at and ended_at (null while the session is still open at the period end)"
+          ],
+          "parameters": {
+            "max_session_minutes": {"type": "integer", "default": null, "min": 1, "max": 10080, "description": "Longest permitted privileged session in minutes. No default."}
+          },
+          "framework_mappings": [
+            {"framework": "ISO27001:2022", "control": "8.2", "title": "Privileged access rights"}
+          ],
+          "remediation": "Terminate or re-authorise long-running privileged sessions and configure a maximum session duration in Securden."
+        }
+      }
+    }
+  }
+}

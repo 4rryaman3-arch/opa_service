@@ -1,0 +1,250 @@
+{
+  "$defs": {
+    "ControlIn": {
+      "additionalProperties": false,
+      "properties": {
+        "control_id": {
+          "pattern": "^PC-[A-Z0-9-]{2,60}$",
+          "title": "Control Id",
+          "type": "string"
+        },
+        "control_version": {
+          "pattern": "^\\d{1,3}\\.\\d{1,3}$",
+          "title": "Control Version",
+          "type": "string"
+        },
+        "parameters": {
+          "additionalProperties": true,
+          "maxProperties": 50,
+          "title": "Parameters",
+          "type": "object"
+        },
+        "targets": {
+          "items": {
+            "$ref": "#/$defs/TargetRef"
+          },
+          "maxItems": 200,
+          "minItems": 1,
+          "title": "Targets",
+          "type": "array"
+        },
+        "label": {
+          "anyOf": [
+            {
+              "maxLength": 120,
+              "minLength": 1,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Label"
+        }
+      },
+      "required": [
+        "control_id",
+        "control_version",
+        "parameters",
+        "targets"
+      ],
+      "title": "ControlIn",
+      "type": "object"
+    },
+    "PolicyReference": {
+      "additionalProperties": false,
+      "properties": {
+        "title": {
+          "maxLength": 300,
+          "minLength": 1,
+          "title": "Title",
+          "type": "string"
+        },
+        "identifier": {
+          "anyOf": [
+            {
+              "maxLength": 128,
+              "minLength": 1,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Identifier"
+        },
+        "section": {
+          "anyOf": [
+            {
+              "maxLength": 200,
+              "minLength": 1,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Section"
+        },
+        "url": {
+          "anyOf": [
+            {
+              "pattern": "^https://[^\\s]{1,2000}$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Url"
+        },
+        "owner": {
+          "anyOf": [
+            {
+              "maxLength": 200,
+              "minLength": 1,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Owner"
+        },
+        "approved_on": {
+          "anyOf": [
+            {
+              "format": "date",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Approved On"
+        }
+      },
+      "required": [
+        "title"
+      ],
+      "title": "PolicyReference",
+      "type": "object"
+    },
+    "TargetRef": {
+      "additionalProperties": false,
+      "properties": {
+        "type": {
+          "enum": [
+            "ORGANIZATION",
+            "ACCOUNT",
+            "ACCOUNT_GROUP",
+            "USER",
+            "USER_GROUP",
+            "RESOURCE",
+            "RESOURCE_GROUP",
+            "SESSION_POLICY",
+            "AUDIT_SOURCE"
+          ],
+          "title": "Type",
+          "type": "string"
+        },
+        "id": {
+          "anyOf": [
+            {
+              "pattern": "^[A-Za-z0-9][A-Za-z0-9._:@/-]{0,127}$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Id"
+        }
+      },
+      "required": [
+        "type"
+      ],
+      "title": "TargetRef",
+      "type": "object"
+    }
+  },
+  "additionalProperties": false,
+  "properties": {
+    "tenant_id": {
+      "pattern": "^[a-z0-9][a-z0-9-]{1,62}$",
+      "title": "Tenant Id",
+      "type": "string"
+    },
+    "request_key": {
+      "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]{7,127}$",
+      "title": "Request Key",
+      "type": "string"
+    },
+    "title": {
+      "maxLength": 200,
+      "minLength": 1,
+      "title": "Title",
+      "type": "string"
+    },
+    "description": {
+      "anyOf": [
+        {
+          "maxLength": 4000,
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Description"
+    },
+    "policy_reference": {
+      "$ref": "#/$defs/PolicyReference"
+    },
+    "effective_from": {
+      "format": "date-time",
+      "title": "Effective From",
+      "type": "string"
+    },
+    "effective_to": {
+      "anyOf": [
+        {
+          "format": "date-time",
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Effective To"
+    },
+    "controls": {
+      "items": {
+        "$ref": "#/$defs/ControlIn"
+      },
+      "maxItems": 100,
+      "minItems": 1,
+      "title": "Controls",
+      "type": "array"
+    }
+  },
+  "required": [
+    "tenant_id",
+    "request_key",
+    "title",
+    "policy_reference",
+    "effective_from",
+    "controls"
+  ],
+  "title": "PolicyVersionIn",
+  "type": "object"
+}

@@ -1,0 +1,123 @@
+# Securden OPM compliance service.
+#
+#   Securden Django --HTTPS+mTLS--> caddy:8443 --(edge, internal)--> api:8000 --(backend, internal)--> opa:8181
+#
+# Only Caddy publishes a port. `edge` and `backend` are internal networks: the
+# api and opa containers have no route to the internet or the LAN, and OPA is
+# reachable only by the api container.
+
+name: securden-opm
+
+x-hardening: &hardening
+  restart: unless-stopped
+  read_only: true
+  cap_drop: [ALL]
+  security_opt: ["no-new-privileges:true"]
+  logging:
+    driver: json-file
+    options: { max-size: "10m", max-file: "5" }
+
+services:
+  opa:
+    <<: *hardening
+    image: openpolicyagent/opa:1.4.2-static@sha256:3c995dc8a59f6ddfd92eb7404d2f7ff9fe71cd025d9251199957a8a6afbfd76e
+    user: "1000:1000"
+    command:
+      - run
+      - --server
+      - --addr=0.0.0.0:8181
+      - --authentication=token
+      - --authorization=basic
+      - --disable-telemetry
+      - --log-level=info
+      - --log-format=json
+      - /policies
+    environment:
+      OPA_AUTH_TOKEN: ${OPA_AUTH_TOKEN:?OPA_AUTH_TOKEN must be set in .env}
+    volumes:
+      # Active bundle: ./policy-bundle, or an immutable published version
+      # (OPM_BUNDLE_HOST_DIR=./bundle-store/versions/<version> in .env).
+      - ${OPM_BUNDLE_HOST_DIR:-./policy-bundle}:/policies:ro
+    tmpfs: ["/tmp:size=16m,mode=1777"]
+    networks: [backend]
+    mem_limit: 512m
+    cpus: 2.0
+    pids_limit: 256
+
+  api:
+    <<: *hardening
+    build: .
+    image: securden-opm-api:1.0.0
+    environment:
+      OPM_OPA_URL: http://opa:8181
+      OPM_OPA_TOKEN: ${OPA_AUTH_TOKEN:?OPA_AUTH_TOKEN must be set in .env}
+      OPM_API_CLIENTS_FILE: /run/secrets/api_clients
+      OPM_POLICY_BUNDLE_DIR: /policies
+      OPM_DB_PATH: /data/opm.db
+      OPM_CATALOG_DB_PATH: /catalog/catalog.db
+      OPM_LOG_LEVEL: ${OPM_LOG_LEVEL:-INFO}
+      OPM_MAX_BODY_BYTES: ${OPM_MAX_BODY_BYTES:-5242880}
+      OPM_MAX_RECORDS_PER_EVALUATION: ${OPM_MAX_RECORDS_PER_EVALUATION:-10000}
+      OPM_MAX_BATCH_ITEMS: ${OPM_MAX_BATCH_ITEMS:-100}
+      OPM_MAX_BATCH_TOTAL_RECORDS: ${OPM_MAX_BATCH_TOTAL_RECORDS:-50000}
+      OPM_BATCH_CONCURRENCY: ${OPM_BATCH_CONCURRENCY:-8}
+      OPM_EVALUATION_TIMEOUT_SECONDS: ${OPM_EVALUATION_TIMEOUT_SECONDS:-30}
+      OPM_RATE_LIMIT_PER_MINUTE: ${OPM_RATE_LIMIT_PER_MINUTE:-600}
+      OPM_RATE_LIMIT_BURST: ${OPM_RATE_LIMIT_BURST:-100}
+      OPM_HISTORICAL_THRESHOLD_DAYS: ${OPM_HISTORICAL_THRESHOLD_DAYS:-35}
+    secrets: [api_clients]
+    volumes:
+      - ${OPM_BUNDLE_HOST_DIR:-./policy-bundle}:/policies:ro
+      - opm-data:/data
+      # Regulatory catalog written by `python -m regintel` on the host; read-only here.
+      - ./data/regintel:/catalog:ro
+    tmpfs: ["/tmp:size=32m,mode=1777"]
+    depends_on:
+      opa: { condition: service_started }
+    networks: [backend, edge]
+    mem_limit: 1g
+    cpus: 2.0
+    pids_limit: 256
+
+  caddy:
+    <<: *hardening
+    image: caddy:2.10.0-alpine@sha256:ae4458638da8e1a91aafffb231c5f8778e964bca650c8a8cb23a7e8ac557aa3c
+    # Non-root; listens on 8443 inside the container (no NET_BIND_SERVICE needed).
+    user: "${OPM_UID:-1000}:${OPM_GID:-1000}"
+    environment:
+      OPM_TLS_SERVER_NAME: ${OPM_TLS_SERVER_NAME:-opm.lan}
+      OPM_MAX_BODY_SIZE: ${OPM_MAX_BODY_SIZE:-5MB}
+      OPM_UPSTREAM: api:8000
+      OPM_CERT_DIR: /certs
+      OPM_LISTEN_PORT: "8443"
+      XDG_DATA_HOME: /data
+      XDG_CONFIG_HOME: /config
+    ports:
+      - "${OPM_BIND_ADDRESS:-0.0.0.0}:${OPM_HTTPS_PORT:-443}:8443"
+    volumes:
+      - ./deploy/Caddyfile:/etc/caddy/Caddyfile:ro
+      - ./deploy/certs:/certs:ro
+    tmpfs:
+      - "/data:size=8m,mode=1777"
+      - "/config:size=8m,mode=1777"
+      - "/tmp:size=8m,mode=1777"
+    depends_on:
+      api: { condition: service_healthy }
+    networks: [public, edge]
+    mem_limit: 256m
+    cpus: 1.0
+    pids_limit: 128
+
+networks:
+  public: {}
+  edge:
+    internal: true
+  backend:
+    internal: true
+
+volumes:
+  opm-data: {}
+
+secrets:
+  api_clients:
+    file: ./secrets/api_clients.json

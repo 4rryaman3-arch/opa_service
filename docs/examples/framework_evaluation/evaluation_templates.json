@@ -1,0 +1,31 @@
+{
+  "schema_version": "1.0",
+  "catalog_version": 4,
+  "policy_bundle_version": "2026.11.12-1",
+  "as_of": "2026-11-13",
+  "jurisdiction": "EU",
+  "include_inherited": false,
+  "items": [
+    {
+      "framework_id": "SYN-EU-ACT",
+      "title": "Synthetic Access Security Act (fixture)",
+      "review_status": "APPROVED",
+      "lifecycle": "IN_FORCE",
+      "jurisdiction_code": "EU",
+      "jurisdiction_match": "EXACT",
+      "jurisdiction_path": "SELF",
+      "published_requirements": 3,
+      "automated_requirements": 1,
+      "manual_requirements": 1,
+      "unmapped_requirements": 1,
+      "blocked_requirements": 0,
+      "mapping_count": 2,
+      "execution_count": 1,
+      "readiness": "PARTIAL",
+      "blockers": []
+    }
+  ],
+  "has_more": false,
+  "next_cursor": null,
+  "note": "Readiness describes which published requirements have a reviewed, executable rule mapping. It is not a compliance result and not an applicability decision; a framework listed for a jurisdiction is a candidate only."
+}

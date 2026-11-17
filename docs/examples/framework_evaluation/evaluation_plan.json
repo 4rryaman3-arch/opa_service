@@ -1,0 +1,347 @@
+{
+  "schema_version": "1.0",
+  "catalog_version": 4,
+  "framework": {
+    "framework_id": "SYN-EU-ACT",
+    "title": "Synthetic Access Security Act (fixture)",
+    "kind": "REGULATION",
+    "adoption": "STATUTORY",
+    "jurisdiction_code": "EU",
+    "review_status": "APPROVED",
+    "verification_status": "VERIFIED",
+    "lifecycle": "IN_FORCE",
+    "published_on": "2024-01-15",
+    "effective_from": "2025-01-01",
+    "effective_to": null,
+    "documents": [
+      {
+        "document": "SYN-ACT",
+        "document_title": null,
+        "document_version": "retrieved-20261113-78d6e0c1d850",
+        "content_sha256": "78d6e0c1d8507951e9e54999e21a8dd226fb3598020a841438e18a6d03cf9341",
+        "url": "https://gazette.regulator.example/act/en",
+        "published_on": "2024-01-15",
+        "language": "en"
+      }
+    ]
+  },
+  "tenant_id": "acme",
+  "as_of": "2026-11-13",
+  "policy_bundle_version": "2026.11.12-1",
+  "readiness": "PARTIAL",
+  "totals": {
+    "published_requirements": 3,
+    "automated_requirements": 1,
+    "manual_requirements": 1,
+    "unmapped_requirements": 1,
+    "blocked_requirements": 0,
+    "mapping_count": 2,
+    "execution_count": 1
+  },
+  "blockers": [],
+  "aggregation": {
+    "mode": "ALL",
+    "description": "A requirement's automated result is derived from ALL of its execution_ids: any FAIL -> FAIL; otherwise any error, missing collector or INSUFFICIENT_EVIDENCE -> INCOMPLETE; all NOT_APPLICABLE -> NOT_APPLICABLE; otherwise PASS. MANUAL, UNMAPPED and BLOCKED requirements never become PASS automatically."
+  },
+  "requirements": [
+    {
+      "requirement_id": 1,
+      "requirement_digest": "sha256:148897aaa04f3e1cd758f5e0f562ac4f9cc2150d94bb945ba444ae76b6bcea6f",
+      "control_reference": "#2 Article 7 Privileged credentials",
+      "obligation_type": "MANDATORY",
+      "pam_domains": [
+        "credential_lifecycle"
+      ],
+      "original_language": "en",
+      "original_text": "Operators shall rotate the credentials of privileged accounts at least every 90 days.",
+      "text_withheld_reason": null,
+      "source_reference": {
+        "authority": "Synthetic Regulator (fixture)",
+        "authority_jurisdiction": "EU",
+        "source_id": "syn-gazette",
+        "document": "SYN-ACT",
+        "document_title": null,
+        "url": "https://gazette.regulator.example/act/en",
+        "document_version": "retrieved-20261113-78d6e0c1d850",
+        "content_sha256": "78d6e0c1d8507951e9e54999e21a8dd226fb3598020a841438e18a6d03cf9341",
+        "retrieved_at": "2026-11-13T01:23:28.744043Z",
+        "published_on": "2024-01-15",
+        "section": "#2 Article 7 Privileged credentials"
+      },
+      "effective_from": "2025-01-01",
+      "effective_to": null,
+      "published_in": 2,
+      "assessment": "AUTOMATED",
+      "technical_coverage": "PARTIAL",
+      "requires_manual_assessment": false,
+      "aggregation": "ALL",
+      "execution_ids": [
+        "exec-9cc258434875b3d1"
+      ],
+      "mappings": [
+        {
+          "mapping_id": 1,
+          "mapping_key": "SYN-EU-ACT:1:PAMC-CRED-ROTATION",
+          "mapping_version": 1,
+          "assessment": "AUTOMATED",
+          "pam_control_id": "PAMC-CRED-ROTATION",
+          "control_reference": "#2 Article 7 Privileged credentials",
+          "coverage": "PARTIAL",
+          "strength": "PARTIAL",
+          "rationale": "Synthetic fixture: the rule measures the rotation interval the passage states.",
+          "limitations": "Synthetic fixture: covers accounts managed in Securden only.",
+          "rule_id": "PAM-ROTATION-001",
+          "rule_version_min": "1.1",
+          "rule_version_max": null,
+          "execution_id": "exec-9cc258434875b3d1",
+          "blocker_codes": [],
+          "review_status": "APPROVED",
+          "reviewer": "deploy",
+          "approved_at": "2026-11-13T01:23:29.033587Z",
+          "published_in": 3,
+          "created_by": "deploy"
+        }
+      ]
+    },
+    {
+      "requirement_id": 2,
+      "requirement_digest": "sha256:0d44d0c8f7d4653ab3cc3e1532e9f136cde7183cb5b3ae999b752d42c765686f",
+      "control_reference": "#2 Article 7 Privileged credentials",
+      "obligation_type": "MANDATORY",
+      "pam_domains": [
+        "session_monitoring"
+      ],
+      "original_language": "en",
+      "original_text": "Operators shall record every privileged session and retain the recording.",
+      "text_withheld_reason": null,
+      "source_reference": {
+        "authority": "Synthetic Regulator (fixture)",
+        "authority_jurisdiction": "EU",
+        "source_id": "syn-gazette",
+        "document": "SYN-ACT",
+        "document_title": null,
+        "url": "https://gazette.regulator.example/act/en",
+        "document_version": "retrieved-20261113-78d6e0c1d850",
+        "content_sha256": "78d6e0c1d8507951e9e54999e21a8dd226fb3598020a841438e18a6d03cf9341",
+        "retrieved_at": "2026-11-13T01:23:28.744043Z",
+        "published_on": "2024-01-15",
+        "section": "#2 Article 7 Privileged credentials"
+      },
+      "effective_from": "2025-01-01",
+      "effective_to": null,
+      "published_in": 2,
+      "assessment": "UNMAPPED",
+      "technical_coverage": "NONE",
+      "requires_manual_assessment": true,
+      "aggregation": "ALL",
+      "execution_ids": [],
+      "mappings": []
+    },
+    {
+      "requirement_id": 3,
+      "requirement_digest": "sha256:ce65477ef2d0235c1cc8e2a624c466bfa638e4c42df9a22ccaf075a0f15d58d6",
+      "control_reference": "#1 Article 1 Scope",
+      "obligation_type": "UNDETERMINED",
+      "pam_domains": [
+        "access_control"
+      ],
+      "original_language": "en",
+      "original_text": "This synthetic act applies to operators of synthetic payment services established in the territory.",
+      "text_withheld_reason": null,
+      "source_reference": {
+        "authority": "Synthetic Regulator (fixture)",
+        "authority_jurisdiction": "EU",
+        "source_id": "syn-gazette",
+        "document": "SYN-ACT",
+        "document_title": null,
+        "url": "https://gazette.regulator.example/act/en",
+        "document_version": "retrieved-20261113-78d6e0c1d850",
+        "content_sha256": "78d6e0c1d8507951e9e54999e21a8dd226fb3598020a841438e18a6d03cf9341",
+        "retrieved_at": "2026-11-13T01:23:28.744043Z",
+        "published_on": "2024-01-15",
+        "section": "#1 Article 1 Scope"
+      },
+      "effective_from": "2025-01-01",
+      "effective_to": null,
+      "published_in": 2,
+      "assessment": "MANUAL",
+      "technical_coverage": "NONE",
+      "requires_manual_assessment": true,
+      "aggregation": "ALL",
+      "execution_ids": [],
+      "mappings": [
+        {
+          "mapping_id": 2,
+          "mapping_key": "SYN-EU-ACT:3:PAMC-ACCESS-AUTHORIZATION",
+          "mapping_version": 1,
+          "assessment": "MANUAL",
+          "pam_control_id": "PAMC-ACCESS-AUTHORIZATION",
+          "control_reference": "#1 Article 1 Scope",
+          "coverage": null,
+          "strength": "SUPPORTING",
+          "rationale": "Synthetic fixture: scope provisions need an organizational assessment.",
+          "limitations": "Synthetic fixture: no technical evidence exists for this passage.",
+          "rule_id": null,
+          "rule_version_min": null,
+          "rule_version_max": null,
+          "execution_id": null,
+          "blocker_codes": [],
+          "review_status": "APPROVED",
+          "reviewer": "deploy",
+          "approved_at": "2026-11-13T01:23:29.059387Z",
+          "published_in": 4,
+          "created_by": "deploy"
+        }
+      ]
+    }
+  ],
+  "executions": [
+    {
+      "execution_id": "exec-9cc258434875b3d1",
+      "rule_id": "PAM-ROTATION-001",
+      "rule_version": "1.1",
+      "parameters": {
+        "max_rotation_age_days": 90
+      },
+      "override_constraints": {
+        "max_rotation_age_days": {
+          "max": 90,
+          "min": 1
+        }
+      },
+      "rule_title": "Privileged password rotation interval",
+      "rule_source": "PREDEFINED",
+      "severity": "HIGH",
+      "evidence_type": "credential_rotation",
+      "evidence_requirements": [
+        "One record per privileged account managed by Securden in the reporting scope",
+        "last_rotated_at (last successful rotation; null when never rotated)",
+        "last_rotation_status of the most recent rotation attempt",
+        "Completeness metadata comparing received records with the Securden account inventory count"
+      ],
+      "parameter_schema": {
+        "max_rotation_age_days": {
+          "type": "integer",
+          "default": 90,
+          "min": 1,
+          "max": 730,
+          "description": "Maximum allowed age of a privileged credential in days."
+        }
+      },
+      "rule_effective_from": "2026-07-01T00:00:00Z",
+      "rule_effective_to": null,
+      "evaluate_request": {
+        "rule_id": "PAM-ROTATION-001",
+        "rule_version": "1.1",
+        "policy_settings": {
+          "parameters": {
+            "max_rotation_age_days": 90
+          }
+        }
+      },
+      "requirement_ids": [
+        1
+      ],
+      "mapping_ids": [
+        1
+      ]
+    }
+  ],
+  "digest_input": {
+    "framework": {
+      "id": "SYN-EU-ACT",
+      "jurisdiction_code": "EU",
+      "verification_status": "VERIFIED",
+      "lifecycle": "IN_FORCE",
+      "effective_from": "2025-01-01",
+      "effective_to": null
+    },
+    "tenant_id": "acme",
+    "policy_bundle_version": "2026.11.12-1",
+    "aggregation": "ALL",
+    "requirements": [
+      {
+        "requirement_id": 1,
+        "requirement_digest": "sha256:148897aaa04f3e1cd758f5e0f562ac4f9cc2150d94bb945ba444ae76b6bcea6f",
+        "assessment": "AUTOMATED",
+        "technical_coverage": "PARTIAL",
+        "execution_ids": [
+          "exec-9cc258434875b3d1"
+        ],
+        "mappings": [
+          {
+            "mapping_id": 1,
+            "mapping_key": "SYN-EU-ACT:1:PAMC-CRED-ROTATION",
+            "mapping_version": 1,
+            "assessment": "AUTOMATED",
+            "coverage": "PARTIAL",
+            "control_reference": "#2 Article 7 Privileged credentials",
+            "rule_id": "PAM-ROTATION-001",
+            "rule_version_min": "1.1",
+            "rule_version_max": null,
+            "execution_id": "exec-9cc258434875b3d1"
+          }
+        ]
+      },
+      {
+        "requirement_id": 2,
+        "requirement_digest": "sha256:0d44d0c8f7d4653ab3cc3e1532e9f136cde7183cb5b3ae999b752d42c765686f",
+        "assessment": "UNMAPPED",
+        "technical_coverage": "NONE",
+        "execution_ids": [],
+        "mappings": []
+      },
+      {
+        "requirement_id": 3,
+        "requirement_digest": "sha256:ce65477ef2d0235c1cc8e2a624c466bfa638e4c42df9a22ccaf075a0f15d58d6",
+        "assessment": "MANUAL",
+        "technical_coverage": "NONE",
+        "execution_ids": [],
+        "mappings": [
+          {
+            "mapping_id": 2,
+            "mapping_key": "SYN-EU-ACT:3:PAMC-ACCESS-AUTHORIZATION",
+            "mapping_version": 1,
+            "assessment": "MANUAL",
+            "coverage": null,
+            "control_reference": "#1 Article 1 Scope",
+            "rule_id": null,
+            "rule_version_min": null,
+            "rule_version_max": null,
+            "execution_id": null
+          }
+        ]
+      }
+    ],
+    "executions": [
+      {
+        "execution_id": "exec-9cc258434875b3d1",
+        "rule_id": "PAM-ROTATION-001",
+        "rule_version": "1.1",
+        "evidence_type": "credential_rotation",
+        "parameters": {
+          "max_rotation_age_days": 90
+        },
+        "override_constraints": {
+          "max_rotation_age_days": {
+            "max": 90,
+            "min": 1
+          }
+        },
+        "parameter_schema": {
+          "max_rotation_age_days": {
+            "type": "integer",
+            "default": 90,
+            "min": 1,
+            "max": 730,
+            "description": "Maximum allowed age of a privileged credential in days."
+          }
+        }
+      }
+    ]
+  },
+  "plan_digest": "sha256:75586aa183b6e278278750a25f265574f20c36ce14178253673a5d7b2dcfd524",
+  "digest_algorithm": "plan_digest = 'sha256:' + hex(SHA-256(UTF-8(JSON(digest_input)))) where JSON is serialized with keys sorted, separators ',' and ':' (no whitespace) and non-ASCII characters left unescaped.",
+  "generated_at": "2026-11-13T01:23:29.074785Z",
+  "mapping_disclaimer": "Mappings are Securden's reviewed interpretation of how a PAM technical control supports a regulatory requirement. They are not legal advice, certification, attestation or an audit conclusion."
+}

@@ -1,0 +1,383 @@
+{
+  "$defs": {
+    "DecisionDetails": {
+      "properties": {
+        "summary": {
+          "title": "Summary",
+          "type": "string"
+        },
+        "engine": {
+          "title": "Engine",
+          "type": "string"
+        },
+        "policy_package": {
+          "title": "Policy Package",
+          "type": "string"
+        },
+        "rule_source": {
+          "enum": [
+            "PREDEFINED",
+            "PUBLISHED",
+            "CUSTOM",
+            "DRAFT"
+          ],
+          "title": "Rule Source",
+          "type": "string"
+        },
+        "evaluation_mode": {
+          "enum": [
+            "CURRENT",
+            "HISTORICAL",
+            "TEST"
+          ],
+          "title": "Evaluation Mode",
+          "type": "string"
+        },
+        "as_of": {
+          "title": "As Of",
+          "type": "string"
+        },
+        "violation_count": {
+          "title": "Violation Count",
+          "type": "integer"
+        },
+        "tolerance": {
+          "title": "Tolerance",
+          "type": "integer"
+        },
+        "parameters": {
+          "additionalProperties": true,
+          "title": "Parameters",
+          "type": "object"
+        },
+        "customer_policy_version": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Customer Policy Version"
+        },
+        "input_digest": {
+          "title": "Input Digest",
+          "type": "string"
+        }
+      },
+      "required": [
+        "summary",
+        "engine",
+        "policy_package",
+        "rule_source",
+        "evaluation_mode",
+        "as_of",
+        "violation_count",
+        "tolerance",
+        "parameters",
+        "customer_policy_version",
+        "input_digest"
+      ],
+      "title": "DecisionDetails",
+      "type": "object"
+    },
+    "EvidenceCompleteness": {
+      "properties": {
+        "complete": {
+          "title": "Complete",
+          "type": "boolean"
+        },
+        "gaps": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Gaps",
+          "type": "array"
+        },
+        "expected_record_count": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Expected Record Count"
+        },
+        "received_record_count": {
+          "title": "Received Record Count",
+          "type": "integer"
+        },
+        "evaluated_record_count": {
+          "title": "Evaluated Record Count",
+          "type": "integer"
+        },
+        "in_scope_record_count": {
+          "title": "In Scope Record Count",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "complete",
+        "gaps",
+        "expected_record_count",
+        "received_record_count",
+        "evaluated_record_count",
+        "in_scope_record_count"
+      ],
+      "title": "EvidenceCompleteness",
+      "type": "object"
+    },
+    "Finding": {
+      "properties": {
+        "record_id": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Record Id"
+        },
+        "subject_id": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Subject Id"
+        },
+        "reasons": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Reasons",
+          "type": "array"
+        },
+        "exception_ids": {
+          "anyOf": [
+            {
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Exception Ids"
+        }
+      },
+      "required": [
+        "record_id",
+        "subject_id",
+        "reasons"
+      ],
+      "title": "Finding",
+      "type": "object"
+    },
+    "FrameworkMapping": {
+      "properties": {
+        "framework": {
+          "title": "Framework",
+          "type": "string"
+        },
+        "control": {
+          "title": "Control",
+          "type": "string"
+        },
+        "title": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Title"
+        }
+      },
+      "required": [
+        "framework",
+        "control"
+      ],
+      "title": "FrameworkMapping",
+      "type": "object"
+    }
+  },
+  "properties": {
+    "evaluation_id": {
+      "title": "Evaluation Id",
+      "type": "string"
+    },
+    "correlation_id": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "title": "Correlation Id"
+    },
+    "tenant_id": {
+      "title": "Tenant Id",
+      "type": "string"
+    },
+    "item_reference": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Item Reference"
+    },
+    "rule_id": {
+      "title": "Rule Id",
+      "type": "string"
+    },
+    "rule_version": {
+      "title": "Rule Version",
+      "type": "string"
+    },
+    "policy_bundle_version": {
+      "title": "Policy Bundle Version",
+      "type": "string"
+    },
+    "status": {
+      "enum": [
+        "PASS",
+        "FAIL",
+        "INSUFFICIENT_EVIDENCE",
+        "NOT_APPLICABLE"
+      ],
+      "title": "Status",
+      "type": "string"
+    },
+    "severity": {
+      "enum": [
+        "LOW",
+        "MEDIUM",
+        "HIGH",
+        "CRITICAL"
+      ],
+      "title": "Severity",
+      "type": "string"
+    },
+    "metrics": {
+      "additionalProperties": true,
+      "title": "Metrics",
+      "type": "object"
+    },
+    "evidence_references": {
+      "items": {
+        "type": "string"
+      },
+      "title": "Evidence References",
+      "type": "array"
+    },
+    "evidence_references_truncated": {
+      "title": "Evidence References Truncated",
+      "type": "boolean"
+    },
+    "violations": {
+      "items": {
+        "$ref": "#/$defs/Finding"
+      },
+      "title": "Violations",
+      "type": "array"
+    },
+    "excepted": {
+      "items": {
+        "$ref": "#/$defs/Finding"
+      },
+      "title": "Excepted",
+      "type": "array"
+    },
+    "undetermined": {
+      "items": {
+        "$ref": "#/$defs/Finding"
+      },
+      "title": "Undetermined",
+      "type": "array"
+    },
+    "findings_truncated": {
+      "title": "Findings Truncated",
+      "type": "boolean"
+    },
+    "evidence_completeness": {
+      "$ref": "#/$defs/EvidenceCompleteness"
+    },
+    "decision_details": {
+      "$ref": "#/$defs/DecisionDetails"
+    },
+    "framework_mappings": {
+      "items": {
+        "$ref": "#/$defs/FrameworkMapping"
+      },
+      "title": "Framework Mappings",
+      "type": "array"
+    },
+    "framework_mapping_disclaimer": {
+      "title": "Framework Mapping Disclaimer",
+      "type": "string"
+    },
+    "remediation": {
+      "title": "Remediation",
+      "type": "string"
+    },
+    "reporting_period": {
+      "additionalProperties": {
+        "type": "string"
+      },
+      "title": "Reporting Period",
+      "type": "object"
+    },
+    "evaluated_at": {
+      "title": "Evaluated At",
+      "type": "string"
+    }
+  },
+  "required": [
+    "evaluation_id",
+    "correlation_id",
+    "tenant_id",
+    "rule_id",
+    "rule_version",
+    "policy_bundle_version",
+    "status",
+    "severity",
+    "metrics",
+    "evidence_references",
+    "evidence_references_truncated",
+    "violations",
+    "excepted",
+    "undetermined",
+    "findings_truncated",
+    "evidence_completeness",
+    "decision_details",
+    "framework_mappings",
+    "framework_mapping_disclaimer",
+    "remediation",
+    "reporting_period",
+    "evaluated_at"
+  ],
+  "title": "EvaluationResult",
+  "type": "object"
+}

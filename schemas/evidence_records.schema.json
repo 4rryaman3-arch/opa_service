@@ -1,0 +1,1046 @@
+{
+  "$comment": "One schema per evidence_type; records are validated against the schema of the request's evidence_type.",
+  "evidence_schema_versions": {
+    "credential_rotation": "1.0",
+    "privileged_session": "1.0",
+    "privileged_access_request": "1.0",
+    "privileged_account": "1.0",
+    "authentication_summary": "1.0",
+    "access_authorization": "1.0",
+    "break_glass_event": "1.0",
+    "policy_exception": "1.0",
+    "access_review": "1.0",
+    "audit_log_coverage": "1.0",
+    "mfa_configuration": "1.0",
+    "privileged_access_authentication": "1.0",
+    "session_policy_configuration": "1.0"
+  },
+  "evidence_types": {
+    "credential_rotation": {
+      "additionalProperties": false,
+      "properties": {
+        "record_id": {
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9._:@/-]{0,127}$",
+          "title": "Record Id",
+          "type": "string"
+        },
+        "scope_tags": {
+          "items": {
+            "pattern": "^[a-z0-9][a-z0-9._:-]{0,63}$",
+            "type": "string"
+          },
+          "maxItems": 20,
+          "title": "Scope Tags",
+          "type": "array"
+        },
+        "account_id": {
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9._:@/-]{0,127}$",
+          "title": "Account Id",
+          "type": "string"
+        },
+        "privileged": {
+          "title": "Privileged",
+          "type": "boolean"
+        },
+        "last_rotated_at": {
+          "anyOf": [
+            {
+              "format": "date-time",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Last Rotated At"
+        },
+        "last_rotation_status": {
+          "anyOf": [
+            {
+              "enum": [
+                "SUCCESS",
+                "FAILED"
+              ],
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Last Rotation Status"
+        }
+      },
+      "required": [
+        "record_id",
+        "account_id",
+        "privileged",
+        "last_rotated_at"
+      ],
+      "title": "CredentialRotationRecord",
+      "type": "object"
+    },
+    "privileged_session": {
+      "additionalProperties": false,
+      "properties": {
+        "record_id": {
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9._:@/-]{0,127}$",
+          "title": "Record Id",
+          "type": "string"
+        },
+        "scope_tags": {
+          "items": {
+            "pattern": "^[a-z0-9][a-z0-9._:-]{0,63}$",
+            "type": "string"
+          },
+          "maxItems": 20,
+          "title": "Scope Tags",
+          "type": "array"
+        },
+        "session_id": {
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9._:@/-]{0,127}$",
+          "title": "Session Id",
+          "type": "string"
+        },
+        "account_id": {
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9._:@/-]{0,127}$",
+          "title": "Account Id",
+          "type": "string"
+        },
+        "user_id": {
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9._:@/-]{0,127}$",
+          "title": "User Id",
+          "type": "string"
+        },
+        "started_at": {
+          "format": "date-time",
+          "title": "Started At",
+          "type": "string"
+        },
+        "ended_at": {
+          "anyOf": [
+            {
+              "format": "date-time",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Ended At"
+        },
+        "recording_required": {
+          "title": "Recording Required",
+          "type": "boolean"
+        },
+        "recording_status": {
+          "enum": [
+            "AVAILABLE",
+            "PARTIAL",
+            "MISSING",
+            "FAILED",
+            "PROCESSING"
+          ],
+          "title": "Recording Status",
+          "type": "string"
+        },
+        "recording_reference": {
+          "anyOf": [
+            {
+              "pattern": "^[A-Za-z0-9][A-Za-z0-9._:@/-]{0,127}$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Recording Reference"
+        }
+      },
+      "required": [
+        "record_id",
+        "session_id",
+        "account_id",
+        "user_id",
+        "started_at",
+        "recording_required",
+        "recording_status"
+      ],
+      "title": "PrivilegedSessionRecord",
+      "type": "object"
+    },
+    "privileged_access_request": {
+      "additionalProperties": false,
+      "properties": {
+        "record_id": {
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9._:@/-]{0,127}$",
+          "title": "Record Id",
+          "type": "string"
+        },
+        "scope_tags": {
+          "items": {
+            "pattern": "^[a-z0-9][a-z0-9._:-]{0,63}$",
+            "type": "string"
+          },
+          "maxItems": 20,
+          "title": "Scope Tags",
+          "type": "array"
+        },
+        "access_id": {
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9._:@/-]{0,127}$",
+          "title": "Access Id",
+          "type": "string"
+        },
+        "user_id": {
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9._:@/-]{0,127}$",
+          "title": "User Id",
+          "type": "string"
+        },
+        "account_id": {
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9._:@/-]{0,127}$",
+          "title": "Account Id",
+          "type": "string"
+        },
+        "accessed_at": {
+          "format": "date-time",
+          "title": "Accessed At",
+          "type": "string"
+        },
+        "approval_required": {
+          "title": "Approval Required",
+          "type": "boolean"
+        },
+        "approval_status": {
+          "enum": [
+            "APPROVED",
+            "PENDING",
+            "DENIED",
+            "NONE"
+          ],
+          "title": "Approval Status",
+          "type": "string"
+        },
+        "approval_id": {
+          "anyOf": [
+            {
+              "pattern": "^[A-Za-z0-9][A-Za-z0-9._:@/-]{0,127}$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Approval Id"
+        },
+        "approved_at": {
+          "anyOf": [
+            {
+              "format": "date-time",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Approved At"
+        },
+        "approver_id": {
+          "anyOf": [
+            {
+              "pattern": "^[A-Za-z0-9][A-Za-z0-9._:@/-]{0,127}$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Approver Id"
+        }
+      },
+      "required": [
+        "record_id",
+        "access_id",
+        "user_id",
+        "account_id",
+        "accessed_at",
+        "approval_required",
+        "approval_status"
+      ],
+      "title": "PrivilegedAccessRequestRecord",
+      "type": "object"
+    },
+    "privileged_account": {
+      "additionalProperties": false,
+      "properties": {
+        "record_id": {
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9._:@/-]{0,127}$",
+          "title": "Record Id",
+          "type": "string"
+        },
+        "scope_tags": {
+          "items": {
+            "pattern": "^[a-z0-9][a-z0-9._:-]{0,63}$",
+            "type": "string"
+          },
+          "maxItems": 20,
+          "title": "Scope Tags",
+          "type": "array"
+        },
+        "account_id": {
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9._:@/-]{0,127}$",
+          "title": "Account Id",
+          "type": "string"
+        },
+        "privileged": {
+          "title": "Privileged",
+          "type": "boolean"
+        },
+        "enabled": {
+          "title": "Enabled",
+          "type": "boolean"
+        },
+        "created_at": {
+          "format": "date-time",
+          "title": "Created At",
+          "type": "string"
+        },
+        "last_used_at": {
+          "anyOf": [
+            {
+              "format": "date-time",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Last Used At"
+        }
+      },
+      "required": [
+        "record_id",
+        "account_id",
+        "privileged",
+        "enabled",
+        "created_at",
+        "last_used_at"
+      ],
+      "title": "PrivilegedAccountRecord",
+      "type": "object"
+    },
+    "authentication_summary": {
+      "additionalProperties": false,
+      "properties": {
+        "record_id": {
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9._:@/-]{0,127}$",
+          "title": "Record Id",
+          "type": "string"
+        },
+        "scope_tags": {
+          "items": {
+            "pattern": "^[a-z0-9][a-z0-9._:-]{0,63}$",
+            "type": "string"
+          },
+          "maxItems": 20,
+          "title": "Scope Tags",
+          "type": "array"
+        },
+        "principal_id": {
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9._:@/-]{0,127}$",
+          "title": "Principal Id",
+          "type": "string"
+        },
+        "window_start": {
+          "format": "date-time",
+          "title": "Window Start",
+          "type": "string"
+        },
+        "window_end": {
+          "format": "date-time",
+          "title": "Window End",
+          "type": "string"
+        },
+        "failed_attempts": {
+          "maximum": 10000000000,
+          "minimum": 0,
+          "title": "Failed Attempts",
+          "type": "integer"
+        },
+        "lockout_triggered": {
+          "title": "Lockout Triggered",
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "record_id",
+        "principal_id",
+        "window_start",
+        "window_end",
+        "failed_attempts",
+        "lockout_triggered"
+      ],
+      "title": "AuthenticationSummaryRecord",
+      "type": "object"
+    },
+    "access_authorization": {
+      "additionalProperties": false,
+      "properties": {
+        "record_id": {
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9._:@/-]{0,127}$",
+          "title": "Record Id",
+          "type": "string"
+        },
+        "scope_tags": {
+          "items": {
+            "pattern": "^[a-z0-9][a-z0-9._:-]{0,63}$",
+            "type": "string"
+          },
+          "maxItems": 20,
+          "title": "Scope Tags",
+          "type": "array"
+        },
+        "access_id": {
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9._:@/-]{0,127}$",
+          "title": "Access Id",
+          "type": "string"
+        },
+        "user_id": {
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9._:@/-]{0,127}$",
+          "title": "User Id",
+          "type": "string"
+        },
+        "account_id": {
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9._:@/-]{0,127}$",
+          "title": "Account Id",
+          "type": "string"
+        },
+        "accessed_at": {
+          "format": "date-time",
+          "title": "Accessed At",
+          "type": "string"
+        },
+        "entitlement_status": {
+          "enum": [
+            "AUTHORIZED",
+            "NOT_AUTHORIZED",
+            "REVOKED",
+            "UNKNOWN"
+          ],
+          "title": "Entitlement Status",
+          "type": "string"
+        },
+        "entitlement_id": {
+          "anyOf": [
+            {
+              "pattern": "^[A-Za-z0-9][A-Za-z0-9._:@/-]{0,127}$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Entitlement Id"
+        },
+        "entitlement_valid_from": {
+          "anyOf": [
+            {
+              "format": "date-time",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Entitlement Valid From"
+        },
+        "entitlement_valid_to": {
+          "anyOf": [
+            {
+              "format": "date-time",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Entitlement Valid To"
+        }
+      },
+      "required": [
+        "record_id",
+        "access_id",
+        "user_id",
+        "account_id",
+        "accessed_at",
+        "entitlement_status"
+      ],
+      "title": "AccessAuthorizationRecord",
+      "type": "object"
+    },
+    "break_glass_event": {
+      "additionalProperties": false,
+      "properties": {
+        "record_id": {
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9._:@/-]{0,127}$",
+          "title": "Record Id",
+          "type": "string"
+        },
+        "scope_tags": {
+          "items": {
+            "pattern": "^[a-z0-9][a-z0-9._:-]{0,63}$",
+            "type": "string"
+          },
+          "maxItems": 20,
+          "title": "Scope Tags",
+          "type": "array"
+        },
+        "event_id": {
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9._:@/-]{0,127}$",
+          "title": "Event Id",
+          "type": "string"
+        },
+        "user_id": {
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9._:@/-]{0,127}$",
+          "title": "User Id",
+          "type": "string"
+        },
+        "account_id": {
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9._:@/-]{0,127}$",
+          "title": "Account Id",
+          "type": "string"
+        },
+        "activated_at": {
+          "format": "date-time",
+          "title": "Activated At",
+          "type": "string"
+        },
+        "justification_provided": {
+          "title": "Justification Provided",
+          "type": "boolean"
+        },
+        "justification_length": {
+          "maximum": 100000,
+          "minimum": 0,
+          "title": "Justification Length",
+          "type": "integer"
+        },
+        "ticket_reference": {
+          "anyOf": [
+            {
+              "pattern": "^[A-Za-z0-9][A-Za-z0-9._:@/-]{0,127}$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Ticket Reference"
+        },
+        "post_review_completed": {
+          "title": "Post Review Completed",
+          "type": "boolean"
+        },
+        "post_review_at": {
+          "anyOf": [
+            {
+              "format": "date-time",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Post Review At"
+        }
+      },
+      "required": [
+        "record_id",
+        "event_id",
+        "user_id",
+        "account_id",
+        "activated_at",
+        "justification_provided",
+        "justification_length",
+        "post_review_completed"
+      ],
+      "title": "BreakGlassEventRecord",
+      "type": "object"
+    },
+    "policy_exception": {
+      "additionalProperties": false,
+      "properties": {
+        "record_id": {
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9._:@/-]{0,127}$",
+          "title": "Record Id",
+          "type": "string"
+        },
+        "scope_tags": {
+          "items": {
+            "pattern": "^[a-z0-9][a-z0-9._:-]{0,63}$",
+            "type": "string"
+          },
+          "maxItems": 20,
+          "title": "Scope Tags",
+          "type": "array"
+        },
+        "exception_id": {
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9._:@/-]{0,127}$",
+          "title": "Exception Id",
+          "type": "string"
+        },
+        "rule_id": {
+          "pattern": "^[A-Z][A-Z0-9]{1,15}(-[A-Z0-9]{1,20}){1,4}$",
+          "title": "Rule Id",
+          "type": "string"
+        },
+        "status": {
+          "enum": [
+            "ACTIVE",
+            "EXPIRED",
+            "REVOKED"
+          ],
+          "title": "Status",
+          "type": "string"
+        },
+        "approved_at": {
+          "format": "date-time",
+          "title": "Approved At",
+          "type": "string"
+        },
+        "expires_at": {
+          "format": "date-time",
+          "title": "Expires At",
+          "type": "string"
+        },
+        "last_used_at": {
+          "anyOf": [
+            {
+              "format": "date-time",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Last Used At"
+        }
+      },
+      "required": [
+        "record_id",
+        "exception_id",
+        "rule_id",
+        "status",
+        "approved_at",
+        "expires_at"
+      ],
+      "title": "PolicyExceptionRecord",
+      "type": "object"
+    },
+    "access_review": {
+      "additionalProperties": false,
+      "properties": {
+        "record_id": {
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9._:@/-]{0,127}$",
+          "title": "Record Id",
+          "type": "string"
+        },
+        "scope_tags": {
+          "items": {
+            "pattern": "^[a-z0-9][a-z0-9._:-]{0,63}$",
+            "type": "string"
+          },
+          "maxItems": 20,
+          "title": "Scope Tags",
+          "type": "array"
+        },
+        "account_id": {
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9._:@/-]{0,127}$",
+          "title": "Account Id",
+          "type": "string"
+        },
+        "privileged": {
+          "title": "Privileged",
+          "type": "boolean"
+        },
+        "enabled": {
+          "title": "Enabled",
+          "type": "boolean"
+        },
+        "owner_id": {
+          "anyOf": [
+            {
+              "pattern": "^[A-Za-z0-9][A-Za-z0-9._:@/-]{0,127}$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Owner Id"
+        },
+        "reviewer_id": {
+          "anyOf": [
+            {
+              "pattern": "^[A-Za-z0-9][A-Za-z0-9._:@/-]{0,127}$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Reviewer Id"
+        },
+        "last_review_completed_at": {
+          "anyOf": [
+            {
+              "format": "date-time",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Last Review Completed At"
+        },
+        "last_review_outcome": {
+          "anyOf": [
+            {
+              "enum": [
+                "CERTIFIED",
+                "REVOKED"
+              ],
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Last Review Outcome"
+        }
+      },
+      "required": [
+        "record_id",
+        "account_id",
+        "privileged",
+        "enabled",
+        "last_review_completed_at"
+      ],
+      "title": "AccessReviewRecord",
+      "type": "object"
+    },
+    "audit_log_coverage": {
+      "additionalProperties": false,
+      "properties": {
+        "record_id": {
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9._:@/-]{0,127}$",
+          "title": "Record Id",
+          "type": "string"
+        },
+        "scope_tags": {
+          "items": {
+            "pattern": "^[a-z0-9][a-z0-9._:-]{0,63}$",
+            "type": "string"
+          },
+          "maxItems": 20,
+          "title": "Scope Tags",
+          "type": "array"
+        },
+        "source_id": {
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9._:@/-]{0,127}$",
+          "title": "Source Id",
+          "type": "string"
+        },
+        "coverage_start": {
+          "format": "date-time",
+          "title": "Coverage Start",
+          "type": "string"
+        },
+        "coverage_end": {
+          "format": "date-time",
+          "title": "Coverage End",
+          "type": "string"
+        },
+        "expected_event_count": {
+          "maximum": 10000000000,
+          "minimum": 0,
+          "title": "Expected Event Count",
+          "type": "integer"
+        },
+        "received_event_count": {
+          "maximum": 10000000000,
+          "minimum": 0,
+          "title": "Received Event Count",
+          "type": "integer"
+        },
+        "max_gap_seconds": {
+          "maximum": 10000000000,
+          "minimum": 0,
+          "title": "Max Gap Seconds",
+          "type": "integer"
+        },
+        "integrity_verified": {
+          "title": "Integrity Verified",
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "record_id",
+        "source_id",
+        "coverage_start",
+        "coverage_end",
+        "expected_event_count",
+        "received_event_count",
+        "max_gap_seconds",
+        "integrity_verified"
+      ],
+      "title": "AuditLogCoverageRecord",
+      "type": "object"
+    },
+    "mfa_configuration": {
+      "additionalProperties": false,
+      "description": "Configuration snapshot: whether MFA is enforced for a principal at ``captured_at``.\nIt says nothing about whether MFA was actually performed at each access.",
+      "properties": {
+        "record_id": {
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9._:@/-]{0,127}$",
+          "title": "Record Id",
+          "type": "string"
+        },
+        "scope_tags": {
+          "items": {
+            "pattern": "^[a-z0-9][a-z0-9._:-]{0,63}$",
+            "type": "string"
+          },
+          "maxItems": 20,
+          "title": "Scope Tags",
+          "type": "array"
+        },
+        "principal_id": {
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9._:@/-]{0,127}$",
+          "title": "Principal Id",
+          "type": "string"
+        },
+        "principal_type": {
+          "enum": [
+            "USER",
+            "ACCOUNT"
+          ],
+          "title": "Principal Type",
+          "type": "string"
+        },
+        "privileged": {
+          "title": "Privileged",
+          "type": "boolean"
+        },
+        "enabled": {
+          "title": "Enabled",
+          "type": "boolean"
+        },
+        "mfa_enforced": {
+          "anyOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Mfa Enforced"
+        },
+        "mfa_methods": {
+          "items": {
+            "enum": [
+              "totp",
+              "push",
+              "fido2",
+              "smart_card",
+              "hardware_token",
+              "sms",
+              "email_otp"
+            ],
+            "type": "string"
+          },
+          "maxItems": 7,
+          "title": "Mfa Methods",
+          "type": "array"
+        },
+        "captured_at": {
+          "format": "date-time",
+          "title": "Captured At",
+          "type": "string"
+        }
+      },
+      "required": [
+        "record_id",
+        "principal_id",
+        "principal_type",
+        "privileged",
+        "enabled",
+        "mfa_enforced",
+        "captured_at"
+      ],
+      "title": "MfaConfigurationRecord",
+      "type": "object"
+    },
+    "privileged_access_authentication": {
+      "additionalProperties": false,
+      "description": "Event history: the authentication performed for one privileged access.",
+      "properties": {
+        "record_id": {
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9._:@/-]{0,127}$",
+          "title": "Record Id",
+          "type": "string"
+        },
+        "scope_tags": {
+          "items": {
+            "pattern": "^[a-z0-9][a-z0-9._:-]{0,63}$",
+            "type": "string"
+          },
+          "maxItems": 20,
+          "title": "Scope Tags",
+          "type": "array"
+        },
+        "access_id": {
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9._:@/-]{0,127}$",
+          "title": "Access Id",
+          "type": "string"
+        },
+        "user_id": {
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9._:@/-]{0,127}$",
+          "title": "User Id",
+          "type": "string"
+        },
+        "account_id": {
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9._:@/-]{0,127}$",
+          "title": "Account Id",
+          "type": "string"
+        },
+        "accessed_at": {
+          "format": "date-time",
+          "title": "Accessed At",
+          "type": "string"
+        },
+        "access_granted": {
+          "title": "Access Granted",
+          "type": "boolean"
+        },
+        "mfa_status": {
+          "enum": [
+            "VERIFIED",
+            "NOT_PERFORMED",
+            "FAILED",
+            "UNKNOWN"
+          ],
+          "title": "Mfa Status",
+          "type": "string"
+        },
+        "mfa_method": {
+          "anyOf": [
+            {
+              "enum": [
+                "totp",
+                "push",
+                "fido2",
+                "smart_card",
+                "hardware_token",
+                "sms",
+                "email_otp"
+              ],
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Mfa Method"
+        }
+      },
+      "required": [
+        "record_id",
+        "access_id",
+        "user_id",
+        "account_id",
+        "accessed_at",
+        "access_granted",
+        "mfa_status"
+      ],
+      "title": "PrivilegedAccessAuthenticationRecord",
+      "type": "object"
+    },
+    "session_policy_configuration": {
+      "additionalProperties": false,
+      "description": "Configuration snapshot of one session policy at ``captured_at``.",
+      "properties": {
+        "record_id": {
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9._:@/-]{0,127}$",
+          "title": "Record Id",
+          "type": "string"
+        },
+        "scope_tags": {
+          "items": {
+            "pattern": "^[a-z0-9][a-z0-9._:-]{0,63}$",
+            "type": "string"
+          },
+          "maxItems": 20,
+          "title": "Scope Tags",
+          "type": "array"
+        },
+        "policy_id": {
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9._:@/-]{0,127}$",
+          "title": "Policy Id",
+          "type": "string"
+        },
+        "applies_to_privileged": {
+          "title": "Applies To Privileged",
+          "type": "boolean"
+        },
+        "idle_timeout_enabled": {
+          "title": "Idle Timeout Enabled",
+          "type": "boolean"
+        },
+        "idle_timeout_minutes": {
+          "anyOf": [
+            {
+              "maximum": 100000,
+              "minimum": 1,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Idle Timeout Minutes"
+        },
+        "captured_at": {
+          "format": "date-time",
+          "title": "Captured At",
+          "type": "string"
+        }
+      },
+      "required": [
+        "record_id",
+        "policy_id",
+        "applies_to_privileged",
+        "idle_timeout_enabled",
+        "idle_timeout_minutes",
+        "captured_at"
+      ],
+      "title": "SessionPolicyConfigurationRecord",
+      "type": "object"
+    }
+  }
+}

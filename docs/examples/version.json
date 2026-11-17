@@ -1,0 +1,23 @@
+{
+  "request": {
+    "method": "GET",
+    "path": "/api/v1/version",
+    "headers": {
+      "Authorization": "Bearer securden-example.<redacted>",
+      "X-Correlation-ID": "securden-example-0001"
+    }
+  },
+  "response": {
+    "status": 200,
+    "body": {
+      "service": "securden-opm-service",
+      "app_version": "1.0.0",
+      "api_version": "v1",
+      "opa_version": "1.4.2",
+      "policy_bundle_version": "2026.11.12-1",
+      "catalog_bundle_version": "2026.11.12-1",
+      "policy_versions_consistent": true,
+      "custom_rule_engine": "securden.custom.v1"
+    }
+  }
+}

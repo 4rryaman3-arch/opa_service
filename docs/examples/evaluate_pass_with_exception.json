@@ -1,0 +1,151 @@
+{
+  "request": {
+    "method": "POST",
+    "path": "/api/v1/evaluate",
+    "headers": {
+      "Authorization": "Bearer securden-example.<redacted>",
+      "X-Correlation-ID": "securden-example-0001"
+    },
+    "body": {
+      "tenant_id": "acme",
+      "rule_id": "PAM-ROTATION-001",
+      "reporting_period": {
+        "start": "2026-10-13T00:00:00Z",
+        "end": "2026-11-12T00:00:00Z"
+      },
+      "evidence": {
+        "evidence_type": "credential_rotation",
+        "records": [
+          {
+            "record_id": "rotation-event-example-001",
+            "account_id": "acct-db-admin-01",
+            "privileged": true,
+            "last_rotated_at": "2026-08-09T00:00:00Z",
+            "last_rotation_status": "SUCCESS"
+          },
+          {
+            "record_id": "rotation-event-example-002",
+            "account_id": "acct-win-admin-07",
+            "privileged": true,
+            "last_rotated_at": "2026-10-31T00:00:00Z",
+            "last_rotation_status": "SUCCESS"
+          }
+        ],
+        "completeness": {
+          "expected_record_count": 2,
+          "received_record_count": 2,
+          "source_complete": true,
+          "collection_errors": 0
+        }
+      },
+      "policy_settings": {
+        "policy_version": "acme-pam-policy-2026.10",
+        "effective_from": "2026-10-03T00:00:00Z",
+        "parameters": {
+          "max_rotation_age_days": 90
+        }
+      },
+      "exceptions": [
+        {
+          "exception_id": "exc-example-001",
+          "rule_id": "PAM-ROTATION-001",
+          "subject_ids": [
+            "acct-db-admin-01"
+          ],
+          "approved_by": "ciso-example",
+          "approved_at": "2026-10-13T00:00:00Z",
+          "expires_at": "2026-12-12T00:00:00Z"
+        }
+      ]
+    }
+  },
+  "response": {
+    "status": 200,
+    "body": {
+      "evaluation_id": "eval-ffcfab3ecead4012a43099f1a439b069",
+      "correlation_id": "securden-example-0001",
+      "tenant_id": "acme",
+      "item_reference": null,
+      "rule_id": "PAM-ROTATION-001",
+      "rule_version": "1.1",
+      "policy_bundle_version": "2026.11.12-1",
+      "status": "PASS",
+      "severity": "HIGH",
+      "metrics": {
+        "accounts_evaluated": 2,
+        "accounts_last_rotation_failed": 0,
+        "accounts_never_rotated": 0,
+        "maximum_allowed_days": 90,
+        "password_age_days": 95
+      },
+      "evidence_references": [
+        "rotation-event-example-001",
+        "rotation-event-example-002"
+      ],
+      "evidence_references_truncated": false,
+      "violations": [],
+      "excepted": [
+        {
+          "record_id": "rotation-event-example-001",
+          "subject_id": "acct-db-admin-01",
+          "reasons": [
+            "ROTATION_AGE_EXCEEDED"
+          ],
+          "exception_ids": [
+            "exc-example-001"
+          ]
+        }
+      ],
+      "undetermined": [],
+      "findings_truncated": false,
+      "evidence_completeness": {
+        "complete": true,
+        "gaps": [],
+        "expected_record_count": 2,
+        "received_record_count": 2,
+        "evaluated_record_count": 2,
+        "in_scope_record_count": 2
+      },
+      "decision_details": {
+        "summary": "All in-scope records satisfy the control test for the reporting period.",
+        "engine": "securden.rules",
+        "policy_package": "securden.rules.pam_rotation_001.v1_1",
+        "rule_source": "PREDEFINED",
+        "evaluation_mode": "CURRENT",
+        "as_of": "2026-11-12T00:00:00.000000Z",
+        "violation_count": 0,
+        "tolerance": 0,
+        "parameters": {
+          "max_rotation_age_days": 90,
+          "scope_tags": []
+        },
+        "customer_policy_version": "acme-pam-policy-2026.10",
+        "input_digest": "sha256:60d0c238df90af50f376a3f4aa93ca19930ca5c4fce7c22ca8ef5157301d0cac"
+      },
+      "framework_mappings": [
+        {
+          "framework": "ISO27001:2022",
+          "control": "5.17",
+          "title": "Authentication information"
+        },
+        {
+          "framework": "ISO27001:2022",
+          "control": "8.2",
+          "title": "Privileged access rights"
+        },
+        {
+          "framework": "SOC2-TSC-2017",
+          "control": "CC6.1",
+          "title": "Logical access security"
+        }
+      ],
+      "framework_mapping_disclaimer": "Framework mappings indicate which ISO/IEC 27001:2022 Annex A controls or AICPA SOC 2 Trust Services Criteria a control test provides evidence toward. They are not certification, attestation, or audit conclusions; only an accredited certification body or licensed CPA firm can make those determinations.",
+      "remediation": "Rotate the credentials of the listed accounts through Securden. For failed rotations, inspect the remote-password-reset error for the target system, fix connectivity or permissions, and re-run rotation.",
+      "reporting_period": {
+        "start": "2026-10-13T00:00:00.000000Z",
+        "end": "2026-11-12T00:00:00.000000Z"
+      },
+      "evaluated_at": "2026-11-12T07:36:16.777603Z"
+    }
+  }
+}

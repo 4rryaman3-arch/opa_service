@@ -1,0 +1,169 @@
+{
+  "additionalProperties": false,
+  "properties": {
+    "requirement_id": {
+      "exclusiveMinimum": 0,
+      "title": "Requirement Id",
+      "type": "integer"
+    },
+    "assessment": {
+      "enum": [
+        "AUTOMATED",
+        "MANUAL"
+      ],
+      "title": "Assessment",
+      "type": "string"
+    },
+    "rationale": {
+      "maxLength": 4000,
+      "minLength": 20,
+      "title": "Rationale",
+      "type": "string"
+    },
+    "limitations": {
+      "maxLength": 4000,
+      "minLength": 10,
+      "title": "Limitations",
+      "type": "string"
+    },
+    "pam_control_id": {
+      "anyOf": [
+        {
+          "maxLength": 64,
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Pam Control Id"
+    },
+    "control_reference": {
+      "anyOf": [
+        {
+          "maxLength": 200,
+          "minLength": 1,
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Control Reference"
+    },
+    "rule_id": {
+      "anyOf": [
+        {
+          "maxLength": 100,
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Rule Id"
+    },
+    "rule_version_min": {
+      "anyOf": [
+        {
+          "pattern": "^\\d{1,3}\\.\\d{1,3}$",
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Rule Version Min"
+    },
+    "rule_version_max": {
+      "anyOf": [
+        {
+          "pattern": "^\\d{1,3}\\.\\d{1,3}$",
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Rule Version Max"
+    },
+    "evidence_type": {
+      "anyOf": [
+        {
+          "maxLength": 64,
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Evidence Type"
+    },
+    "parameters": {
+      "additionalProperties": {
+        "anyOf": [
+          {
+            "type": "boolean"
+          },
+          {
+            "type": "integer"
+          }
+        ]
+      },
+      "maxProperties": 50,
+      "title": "Parameters",
+      "type": "object"
+    },
+    "override_constraints": {
+      "additionalProperties": {
+        "additionalProperties": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "items": {
+                "type": "boolean"
+              },
+              "type": "array"
+            }
+          ]
+        },
+        "type": "object"
+      },
+      "maxProperties": 50,
+      "title": "Override Constraints",
+      "type": "object"
+    },
+    "coverage": {
+      "anyOf": [
+        {
+          "enum": [
+            "FULL",
+            "PARTIAL"
+          ],
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Coverage"
+    }
+  },
+  "required": [
+    "requirement_id",
+    "assessment",
+    "rationale",
+    "limitations"
+  ],
+  "title": "MappingCreate",
+  "type": "object"
+}

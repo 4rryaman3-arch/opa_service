@@ -1,0 +1,304 @@
+{
+  "$defs": {
+    "Condition": {
+      "additionalProperties": false,
+      "properties": {
+        "field": {
+          "pattern": "^[a-z][a-z0-9_]{0,63}$",
+          "title": "Field",
+          "type": "string"
+        },
+        "op": {
+          "enum": [
+            "eq",
+            "ne",
+            "gt",
+            "gte",
+            "lt",
+            "lte",
+            "in",
+            "not_in",
+            "is_null",
+            "not_null",
+            "older_than_days",
+            "within_last_days",
+            "contains"
+          ],
+          "title": "Op",
+          "type": "string"
+        },
+        "value": {
+          "default": null,
+          "title": "Value"
+        }
+      },
+      "required": [
+        "field",
+        "op"
+      ],
+      "title": "Condition",
+      "type": "object"
+    },
+    "CustomFrameworkMapping": {
+      "additionalProperties": false,
+      "properties": {
+        "framework": {
+          "enum": [
+            "ISO27001:2022",
+            "SOC2-TSC-2017"
+          ],
+          "title": "Framework",
+          "type": "string"
+        },
+        "control": {
+          "pattern": "^(A\\.)?\\d{1,2}(\\.\\d{1,2}){0,2}$|^(CC|A|C|PI|P)\\d{1,2}(\\.\\d{1,2})?$",
+          "title": "Control",
+          "type": "string"
+        },
+        "title": {
+          "anyOf": [
+            {
+              "maxLength": 200,
+              "pattern": "^[^\\x00-\\x08\\x0b\\x0c\\x0e-\\x1f\\x7f]*$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Title"
+        }
+      },
+      "required": [
+        "framework",
+        "control"
+      ],
+      "title": "CustomFrameworkMapping",
+      "type": "object"
+    },
+    "Group": {
+      "additionalProperties": false,
+      "properties": {
+        "all": {
+          "anyOf": [
+            {
+              "items": {
+                "anyOf": [
+                  {
+                    "$ref": "#/$defs/Condition"
+                  },
+                  {
+                    "$ref": "#/$defs/LeafGroup"
+                  }
+                ]
+              },
+              "maxItems": 20,
+              "minItems": 1,
+              "type": "array"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "All"
+        },
+        "any": {
+          "anyOf": [
+            {
+              "items": {
+                "anyOf": [
+                  {
+                    "$ref": "#/$defs/Condition"
+                  },
+                  {
+                    "$ref": "#/$defs/LeafGroup"
+                  }
+                ]
+              },
+              "maxItems": 20,
+              "minItems": 1,
+              "type": "array"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Any"
+        }
+      },
+      "title": "Group",
+      "type": "object"
+    },
+    "LeafGroup": {
+      "additionalProperties": false,
+      "properties": {
+        "all": {
+          "anyOf": [
+            {
+              "items": {
+                "$ref": "#/$defs/Condition"
+              },
+              "maxItems": 20,
+              "minItems": 1,
+              "type": "array"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "All"
+        },
+        "any": {
+          "anyOf": [
+            {
+              "items": {
+                "$ref": "#/$defs/Condition"
+              },
+              "maxItems": 20,
+              "minItems": 1,
+              "type": "array"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Any"
+        }
+      },
+      "title": "LeafGroup",
+      "type": "object"
+    }
+  },
+  "additionalProperties": false,
+  "properties": {
+    "rule_id": {
+      "pattern": "^CUST(-[A-Z0-9]{1,20}){1,4}$",
+      "title": "Rule Id",
+      "type": "string"
+    },
+    "version": {
+      "pattern": "^\\d{1,3}\\.\\d{1,3}$",
+      "title": "Version",
+      "type": "string"
+    },
+    "title": {
+      "maxLength": 120,
+      "minLength": 3,
+      "pattern": "^[^\\x00-\\x08\\x0b\\x0c\\x0e-\\x1f\\x7f]*$",
+      "title": "Title",
+      "type": "string"
+    },
+    "description": {
+      "default": "",
+      "maxLength": 2000,
+      "pattern": "^[^\\x00-\\x08\\x0b\\x0c\\x0e-\\x1f\\x7f]*$",
+      "title": "Description",
+      "type": "string"
+    },
+    "severity": {
+      "enum": [
+        "LOW",
+        "MEDIUM",
+        "HIGH",
+        "CRITICAL"
+      ],
+      "title": "Severity",
+      "type": "string"
+    },
+    "evidence_type": {
+      "enum": [
+        "credential_rotation",
+        "privileged_session",
+        "privileged_access_request",
+        "privileged_account",
+        "authentication_summary",
+        "access_authorization",
+        "break_glass_event",
+        "policy_exception",
+        "access_review",
+        "audit_log_coverage",
+        "mfa_configuration",
+        "privileged_access_authentication",
+        "session_policy_configuration"
+      ],
+      "title": "Evidence Type",
+      "type": "string"
+    },
+    "subject_field": {
+      "pattern": "^[a-z][a-z0-9_]{0,63}$",
+      "title": "Subject Field",
+      "type": "string"
+    },
+    "scope": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/Group"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null
+    },
+    "violation_when": {
+      "$ref": "#/$defs/Group"
+    },
+    "tolerance": {
+      "default": 0,
+      "maximum": 100000,
+      "minimum": 0,
+      "title": "Tolerance",
+      "type": "integer"
+    },
+    "effective_from": {
+      "format": "date-time",
+      "title": "Effective From",
+      "type": "string"
+    },
+    "effective_to": {
+      "anyOf": [
+        {
+          "format": "date-time",
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Effective To"
+    },
+    "framework_mappings": {
+      "items": {
+        "$ref": "#/$defs/CustomFrameworkMapping"
+      },
+      "maxItems": 20,
+      "title": "Framework Mappings",
+      "type": "array"
+    },
+    "remediation": {
+      "default": "",
+      "maxLength": 2000,
+      "pattern": "^[^\\x00-\\x08\\x0b\\x0c\\x0e-\\x1f\\x7f]*$",
+      "title": "Remediation",
+      "type": "string"
+    }
+  },
+  "required": [
+    "rule_id",
+    "version",
+    "title",
+    "severity",
+    "evidence_type",
+    "subject_field",
+    "violation_when",
+    "effective_from"
+  ],
+  "title": "CustomRuleDefinition",
+  "type": "object"
+}

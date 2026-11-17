@@ -1,0 +1,1335 @@
+{
+  "$comment": "Control catalog snapshot (GET /api/v1/catalog/policy-controls is authoritative).",
+  "control_catalog_version": "2026.11.16-1",
+  "schema_subset": {
+    "dialect": "securden-policy-schema-subset/1",
+    "types": [
+      "array",
+      "boolean",
+      "integer",
+      "number",
+      "object",
+      "string"
+    ],
+    "keywords": {
+      "boolean": [
+        "description",
+        "title",
+        "type"
+      ],
+      "integer": [
+        "description",
+        "enum",
+        "maximum",
+        "minimum",
+        "title",
+        "type"
+      ],
+      "number": [
+        "description",
+        "maximum",
+        "minimum",
+        "title",
+        "type"
+      ],
+      "string": [
+        "description",
+        "enum",
+        "maxLength",
+        "minLength",
+        "pattern",
+        "title",
+        "type"
+      ],
+      "array": [
+        "description",
+        "items",
+        "maxItems",
+        "minItems",
+        "title",
+        "type",
+        "uniqueItems"
+      ],
+      "object": [
+        "additionalProperties",
+        "description",
+        "properties",
+        "required",
+        "title",
+        "type"
+      ]
+    },
+    "rules": [
+      "Every schema node has exactly one 'type' from 'types'.",
+      "Objects must list every property in 'required' and set additionalProperties to false: no optional parameter and no default is ever filled in by OPM.",
+      "Arrays have exactly one 'items' schema.",
+      "'enum' lists strings (type string) or integers (type integer).",
+      "'pattern' is an ECMA-262 / Python-compatible regular expression anchored with ^...$.",
+      "integer accepts JSON integers only (true/false and 5.0 are rejected); number accepts integers and finite decimals; boolean accepts true/false only.",
+      "Any other keyword (default, $ref, oneOf, anyOf, allOf, not, const, format, multipleOf, exclusiveMinimum, patternProperties, if/then/else, ...) is unsupported and rejected."
+    ]
+  },
+  "target_types": {
+    "ORGANIZATION": {
+      "kind": "ALL",
+      "description": "Every in-scope object of the control's subject type in the organization scope (resolved by Django). Takes no id."
+    },
+    "ACCOUNT": {
+      "kind": "LEAF",
+      "description": "One privileged account."
+    },
+    "ACCOUNT_GROUP": {
+      "kind": "GROUP",
+      "member_type": "ACCOUNT",
+      "description": "A PAM account group or folder."
+    },
+    "USER": {
+      "kind": "LEAF",
+      "description": "One PAM user."
+    },
+    "USER_GROUP": {
+      "kind": "GROUP",
+      "member_type": "USER",
+      "description": "A PAM user group or role."
+    },
+    "RESOURCE": {
+      "kind": "LEAF",
+      "description": "One managed system (server, database, application)."
+    },
+    "RESOURCE_GROUP": {
+      "kind": "GROUP",
+      "member_type": "RESOURCE",
+      "description": "A group of managed systems."
+    },
+    "SESSION_POLICY": {
+      "kind": "LEAF",
+      "description": "One session policy."
+    },
+    "AUDIT_SOURCE": {
+      "kind": "LEAF",
+      "description": "One audit log source."
+    }
+  },
+  "assessment_modes": {
+    "CONFIGURATION_SNAPSHOT": "Configuration captured at one instant inside the reporting period. A PASS describes that configuration only; it is not evidence that the setting was enforced for every event.",
+    "EVENT_HISTORY": "Events or state history of the reporting period: what actually happened."
+  },
+  "items": [
+    {
+      "control_id": "PC-ACCESS-APPROVAL",
+      "control_version": "1.0",
+      "category": "privileged_access_management",
+      "pam_control_id": "PAMC-ACCESS-APPROVAL",
+      "title": "Approval before privileged access",
+      "description": "Privileged access requiring approval is approved, recently enough, before use.",
+      "parameter_schema": {
+        "type": "object",
+        "properties": {
+          "max_approval_age_hours": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 720,
+            "title": "Maximum approval age"
+          }
+        },
+        "required": [
+          "max_approval_age_hours"
+        ],
+        "additionalProperties": false
+      },
+      "ui": {
+        "order": [
+          "max_approval_age_hours"
+        ],
+        "parameters": {
+          "max_approval_age_hours": {
+            "label": "Maximum approval age",
+            "unit": "hours",
+            "help": "An approval older than this at access time fails."
+          }
+        }
+      },
+      "target_types": [
+        "ORGANIZATION",
+        "USER",
+        "USER_GROUP",
+        "ACCOUNT",
+        "ACCOUNT_GROUP",
+        "RESOURCE",
+        "RESOURCE_GROUP"
+      ],
+      "assessment_mode": "EVENT_HISTORY",
+      "bindings": [
+        {
+          "rule_id": "PAM-APPROVAL-001",
+          "rule_version": "1.0",
+          "evidence_type": "privileged_access_request",
+          "parameter_map": {
+            "max_approval_age_hours": "max_approval_age_hours"
+          },
+          "evidence_schema_version": "1.0"
+        }
+      ],
+      "implementation": {
+        "status": "EXECUTABLE",
+        "limitations": []
+      },
+      "addresses_gap_rules": [
+        "PAM-APPROVAL-001"
+      ],
+      "definition_digest": "sha256:0ff23a56c28820186bf79cc8ee44b88e57d4e694232caadb0f099edf21a4007f",
+      "assessability": {
+        "end_to_end_assessable": null,
+        "reason": "Send the organization scope header and tenant_id to see collector support for this organization.",
+        "bindings": []
+      }
+    },
+    {
+      "control_id": "PC-ACCESS-AUTHORIZATION",
+      "control_version": "1.0",
+      "category": "access_control",
+      "pam_control_id": "PAMC-ACCESS-AUTHORIZATION",
+      "title": "Entitlement-based access",
+      "description": "Privileged access is exercised only under a valid entitlement.",
+      "parameter_schema": {
+        "type": "object",
+        "properties": {},
+        "required": [],
+        "additionalProperties": false
+      },
+      "ui": {
+        "order": [],
+        "parameters": {}
+      },
+      "target_types": [
+        "ORGANIZATION",
+        "USER",
+        "USER_GROUP",
+        "ACCOUNT",
+        "ACCOUNT_GROUP",
+        "RESOURCE",
+        "RESOURCE_GROUP"
+      ],
+      "assessment_mode": "EVENT_HISTORY",
+      "bindings": [
+        {
+          "rule_id": "PAM-UNAUTH-001",
+          "rule_version": "1.0",
+          "evidence_type": "access_authorization",
+          "parameter_map": {},
+          "evidence_schema_version": "1.0"
+        }
+      ],
+      "implementation": {
+        "status": "EXECUTABLE",
+        "limitations": []
+      },
+      "addresses_gap_rules": [
+        "PAM-UNAUTH-001"
+      ],
+      "definition_digest": "sha256:c185f9ce0d57ad03ae4d4833421c4ca34ad9ae174aba2d6dcec8f6e5b35a51f6",
+      "assessability": {
+        "end_to_end_assessable": null,
+        "reason": "Send the organization scope header and tenant_id to see collector support for this organization.",
+        "bindings": []
+      }
+    },
+    {
+      "control_id": "PC-ACCESS-REVIEW",
+      "control_version": "1.0",
+      "category": "access_reviews",
+      "pam_control_id": "PAMC-ACCESS-REVIEW",
+      "title": "Periodic privileged access review",
+      "description": "Privileged accounts are reviewed at least every interval.",
+      "parameter_schema": {
+        "type": "object",
+        "properties": {
+          "review_interval_days": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 730,
+            "title": "Review interval"
+          }
+        },
+        "required": [
+          "review_interval_days"
+        ],
+        "additionalProperties": false
+      },
+      "ui": {
+        "order": [
+          "review_interval_days"
+        ],
+        "parameters": {
+          "review_interval_days": {
+            "label": "Review interval",
+            "unit": "days",
+            "help": ""
+          }
+        }
+      },
+      "target_types": [
+        "ORGANIZATION",
+        "ACCOUNT",
+        "ACCOUNT_GROUP",
+        "RESOURCE",
+        "RESOURCE_GROUP"
+      ],
+      "assessment_mode": "EVENT_HISTORY",
+      "bindings": [
+        {
+          "rule_id": "PAM-REVIEW-001",
+          "rule_version": "1.0",
+          "evidence_type": "access_review",
+          "parameter_map": {
+            "review_interval_days": "review_interval_days"
+          },
+          "evidence_schema_version": "1.0"
+        }
+      ],
+      "implementation": {
+        "status": "EXECUTABLE",
+        "limitations": []
+      },
+      "addresses_gap_rules": [
+        "PAM-REVIEW-001"
+      ],
+      "definition_digest": "sha256:bcb91f85e38f0e40369bfd2d03a32ba0e3bd5a866898c0707785fa9ac9a2412b",
+      "assessability": {
+        "end_to_end_assessable": null,
+        "reason": "Send the organization scope header and tenant_id to see collector support for this organization.",
+        "bindings": []
+      }
+    },
+    {
+      "control_id": "PC-AUDIT-LOG-COMPLETENESS",
+      "control_version": "1.0",
+      "category": "audit_logging",
+      "pam_control_id": "PAMC-AUDIT-LOG-COMPLETENESS",
+      "title": "Audit log completeness",
+      "description": "Audit sources are complete, gap-free within tolerance and integrity-verified.",
+      "parameter_schema": {
+        "type": "object",
+        "properties": {
+          "min_completeness_percent": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 100,
+            "title": "Minimum completeness"
+          },
+          "max_allowed_gap_seconds": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 604800,
+            "title": "Maximum gap"
+          },
+          "require_integrity_verification": {
+            "type": "boolean",
+            "title": "Require integrity verification"
+          }
+        },
+        "required": [
+          "max_allowed_gap_seconds",
+          "min_completeness_percent",
+          "require_integrity_verification"
+        ],
+        "additionalProperties": false
+      },
+      "ui": {
+        "order": [
+          "min_completeness_percent",
+          "max_allowed_gap_seconds",
+          "require_integrity_verification"
+        ],
+        "parameters": {
+          "min_completeness_percent": {
+            "label": "Minimum completeness",
+            "unit": "percent",
+            "help": ""
+          },
+          "max_allowed_gap_seconds": {
+            "label": "Maximum gap",
+            "unit": "seconds",
+            "help": ""
+          },
+          "require_integrity_verification": {
+            "label": "Require integrity verification",
+            "unit": "none",
+            "help": ""
+          }
+        }
+      },
+      "target_types": [
+        "ORGANIZATION",
+        "AUDIT_SOURCE"
+      ],
+      "assessment_mode": "EVENT_HISTORY",
+      "bindings": [
+        {
+          "rule_id": "PAM-AUDITCOMP-001",
+          "rule_version": "1.0",
+          "evidence_type": "audit_log_coverage",
+          "parameter_map": {
+            "min_completeness_percent": "min_completeness_percent",
+            "max_allowed_gap_seconds": "max_allowed_gap_seconds",
+            "require_integrity_verification": "require_integrity_verification"
+          },
+          "evidence_schema_version": "1.0"
+        }
+      ],
+      "implementation": {
+        "status": "EXECUTABLE",
+        "limitations": []
+      },
+      "addresses_gap_rules": [
+        "PAM-AUDITCOMP-001"
+      ],
+      "definition_digest": "sha256:e611232268da131b6fc0e8350fd639754f98c90eb4ed015a0091508098c6dc7d",
+      "assessability": {
+        "end_to_end_assessable": null,
+        "reason": "Send the organization scope header and tenant_id to see collector support for this organization.",
+        "bindings": []
+      }
+    },
+    {
+      "control_id": "PC-AUTH-FAILURE-MONITORING",
+      "control_version": "1.0",
+      "category": "security_event_monitoring",
+      "pam_control_id": "PAMC-AUTH-FAILURE-MONITORING",
+      "title": "Failed authentication threshold",
+      "description": "Excessive failed authentication attempts per principal and window. This is monitoring of failed logons; it is not multi-factor authentication.",
+      "parameter_schema": {
+        "type": "object",
+        "properties": {
+          "max_failed_attempts": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 1000,
+            "title": "Maximum failed attempts"
+          },
+          "window_minutes": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 1440,
+            "title": "Window"
+          },
+          "lockout_is_mitigation": {
+            "type": "boolean",
+            "title": "Lockout counts as mitigation"
+          }
+        },
+        "required": [
+          "lockout_is_mitigation",
+          "max_failed_attempts",
+          "window_minutes"
+        ],
+        "additionalProperties": false
+      },
+      "ui": {
+        "order": [
+          "max_failed_attempts",
+          "window_minutes",
+          "lockout_is_mitigation"
+        ],
+        "parameters": {
+          "max_failed_attempts": {
+            "label": "Maximum failed attempts",
+            "unit": "count",
+            "help": "Per principal within the window."
+          },
+          "window_minutes": {
+            "label": "Window",
+            "unit": "minutes",
+            "help": "Length of the counting window."
+          },
+          "lockout_is_mitigation": {
+            "label": "Lockout counts as mitigation",
+            "unit": "none",
+            "help": "When true, a triggered lockout is not a violation."
+          }
+        }
+      },
+      "target_types": [
+        "ORGANIZATION",
+        "USER",
+        "USER_GROUP"
+      ],
+      "assessment_mode": "EVENT_HISTORY",
+      "bindings": [
+        {
+          "rule_id": "PAM-AUTHFAIL-001",
+          "rule_version": "1.0",
+          "evidence_type": "authentication_summary",
+          "parameter_map": {
+            "max_failed_attempts": "max_failed_attempts",
+            "window_minutes": "window_minutes",
+            "lockout_is_mitigation": "lockout_is_mitigation"
+          },
+          "evidence_schema_version": "1.0"
+        }
+      ],
+      "implementation": {
+        "status": "EXECUTABLE",
+        "limitations": [
+          "Monitors failed logons only; this is not MFA evidence (use PC-MFA-AT-ACCESS)."
+        ]
+      },
+      "addresses_gap_rules": [
+        "PAM-AUTHFAIL-001"
+      ],
+      "definition_digest": "sha256:a0a881f8647ee26b8cf4f2ed499515a2b9f6b139f2e05781613bfb32bd2c2968",
+      "assessability": {
+        "end_to_end_assessable": null,
+        "reason": "Send the organization scope header and tenant_id to see collector support for this organization.",
+        "bindings": []
+      }
+    },
+    {
+      "control_id": "PC-CRED-ROTATION",
+      "control_version": "1.0",
+      "category": "credential_lifecycle",
+      "pam_control_id": "PAMC-CRED-ROTATION",
+      "title": "Privileged credential rotation interval",
+      "description": "Maximum age of a privileged credential before it must have been rotated successfully.",
+      "parameter_schema": {
+        "type": "object",
+        "properties": {
+          "max_rotation_age_days": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 730,
+            "title": "Maximum credential age"
+          }
+        },
+        "required": [
+          "max_rotation_age_days"
+        ],
+        "additionalProperties": false
+      },
+      "ui": {
+        "order": [
+          "max_rotation_age_days"
+        ],
+        "parameters": {
+          "max_rotation_age_days": {
+            "label": "Maximum credential age",
+            "unit": "days",
+            "help": "Accounts not rotated within this many days before the period end fail."
+          }
+        }
+      },
+      "target_types": [
+        "ORGANIZATION",
+        "ACCOUNT",
+        "ACCOUNT_GROUP",
+        "RESOURCE",
+        "RESOURCE_GROUP"
+      ],
+      "assessment_mode": "EVENT_HISTORY",
+      "bindings": [
+        {
+          "rule_id": "PAM-ROTATION-001",
+          "rule_version": "1.1",
+          "evidence_type": "credential_rotation",
+          "parameter_map": {
+            "max_rotation_age_days": "max_rotation_age_days"
+          },
+          "evidence_schema_version": "1.0"
+        }
+      ],
+      "implementation": {
+        "status": "EXECUTABLE",
+        "limitations": [
+          "Rule 1.1 is effective from 2026-07-01; earlier reporting periods cannot use this control version."
+        ]
+      },
+      "addresses_gap_rules": [
+        "PAM-ROTATION-001"
+      ],
+      "definition_digest": "sha256:018bc0b8f471f4cec90c10c2b7af4dceb1d238ce2bffdd5a0d3005eb421ac575",
+      "assessability": {
+        "end_to_end_assessable": null,
+        "reason": "Send the organization scope header and tenant_id to see collector support for this organization.",
+        "bindings": []
+      }
+    },
+    {
+      "control_id": "PC-DORMANT-ACCOUNTS",
+      "control_version": "1.0",
+      "category": "identity_governance",
+      "pam_control_id": "PAMC-DORMANT-ACCOUNTS",
+      "title": "Dormant privileged accounts",
+      "description": "Enabled privileged accounts unused for longer than the limit are violations.",
+      "parameter_schema": {
+        "type": "object",
+        "properties": {
+          "dormant_after_days": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 730,
+            "title": "Dormant after"
+          }
+        },
+        "required": [
+          "dormant_after_days"
+        ],
+        "additionalProperties": false
+      },
+      "ui": {
+        "order": [
+          "dormant_after_days"
+        ],
+        "parameters": {
+          "dormant_after_days": {
+            "label": "Dormant after",
+            "unit": "days",
+            "help": "Inactivity measured to the reporting period end."
+          }
+        }
+      },
+      "target_types": [
+        "ORGANIZATION",
+        "ACCOUNT",
+        "ACCOUNT_GROUP",
+        "RESOURCE",
+        "RESOURCE_GROUP"
+      ],
+      "assessment_mode": "EVENT_HISTORY",
+      "bindings": [
+        {
+          "rule_id": "PAM-DORMANT-001",
+          "rule_version": "1.0",
+          "evidence_type": "privileged_account",
+          "parameter_map": {
+            "dormant_after_days": "dormant_after_days"
+          },
+          "evidence_schema_version": "1.0"
+        }
+      ],
+      "implementation": {
+        "status": "EXECUTABLE",
+        "limitations": []
+      },
+      "addresses_gap_rules": [
+        "PAM-DORMANT-001"
+      ],
+      "definition_digest": "sha256:9962e362c2ee756ea9f635e238778aaa744e70f9e1be5ae67f297f7620b70f13",
+      "assessability": {
+        "end_to_end_assessable": null,
+        "reason": "Send the organization scope header and tenant_id to see collector support for this organization.",
+        "bindings": []
+      }
+    },
+    {
+      "control_id": "PC-EMERGENCY-ACCESS",
+      "control_version": "1.0",
+      "category": "emergency_access",
+      "pam_control_id": "PAMC-EMERGENCY-ACCESS",
+      "title": "Break-glass governance",
+      "description": "Emergency access is justified, ticketed when required, and reviewed after use.",
+      "parameter_schema": {
+        "type": "object",
+        "properties": {
+          "min_justification_length": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 2000,
+            "title": "Minimum justification length"
+          },
+          "require_ticket_reference": {
+            "type": "boolean",
+            "title": "Require ticket reference"
+          },
+          "post_review_within_hours": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 2160,
+            "title": "Post-review deadline"
+          }
+        },
+        "required": [
+          "min_justification_length",
+          "post_review_within_hours",
+          "require_ticket_reference"
+        ],
+        "additionalProperties": false
+      },
+      "ui": {
+        "order": [
+          "min_justification_length",
+          "require_ticket_reference",
+          "post_review_within_hours"
+        ],
+        "parameters": {
+          "min_justification_length": {
+            "label": "Minimum justification length",
+            "unit": "characters",
+            "help": ""
+          },
+          "require_ticket_reference": {
+            "label": "Require ticket reference",
+            "unit": "none",
+            "help": ""
+          },
+          "post_review_within_hours": {
+            "label": "Post-review deadline",
+            "unit": "hours",
+            "help": "Review must complete within this many hours."
+          }
+        }
+      },
+      "target_types": [
+        "ORGANIZATION",
+        "USER",
+        "USER_GROUP",
+        "ACCOUNT",
+        "ACCOUNT_GROUP",
+        "RESOURCE",
+        "RESOURCE_GROUP"
+      ],
+      "assessment_mode": "EVENT_HISTORY",
+      "bindings": [
+        {
+          "rule_id": "PAM-BREAKGLASS-001",
+          "rule_version": "1.0",
+          "evidence_type": "break_glass_event",
+          "parameter_map": {
+            "min_justification_length": "min_justification_length",
+            "require_ticket_reference": "require_ticket_reference",
+            "post_review_within_hours": "post_review_within_hours"
+          },
+          "evidence_schema_version": "1.0"
+        }
+      ],
+      "implementation": {
+        "status": "EXECUTABLE",
+        "limitations": []
+      },
+      "addresses_gap_rules": [
+        "PAM-BREAKGLASS-001"
+      ],
+      "definition_digest": "sha256:45ae3892f04b806048ecb3250daef433776a37f81d150dafc7a8f692c66f84df",
+      "assessability": {
+        "end_to_end_assessable": null,
+        "reason": "Send the organization scope header and tenant_id to see collector support for this organization.",
+        "bindings": []
+      }
+    },
+    {
+      "control_id": "PC-MFA-AT-ACCESS",
+      "control_version": "1.0",
+      "category": "authentication",
+      "pam_control_id": "PAMC-MFA-PRIVILEGED",
+      "title": "MFA performed at privileged access",
+      "description": "Every granted privileged access was preceded by a verified MFA challenge with an accepted method.",
+      "parameter_schema": {
+        "type": "object",
+        "properties": {
+          "accepted_methods": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "enum": [
+                "email_otp",
+                "fido2",
+                "hardware_token",
+                "push",
+                "smart_card",
+                "sms",
+                "totp"
+              ]
+            },
+            "minItems": 1,
+            "maxItems": 7,
+            "uniqueItems": true,
+            "title": "Accepted MFA methods"
+          }
+        },
+        "required": [
+          "accepted_methods"
+        ],
+        "additionalProperties": false
+      },
+      "ui": {
+        "order": [
+          "accepted_methods"
+        ],
+        "parameters": {
+          "accepted_methods": {
+            "label": "Accepted MFA methods",
+            "unit": "none",
+            "help": "A verified challenge with another method fails."
+          }
+        }
+      },
+      "target_types": [
+        "ORGANIZATION",
+        "USER",
+        "USER_GROUP",
+        "ACCOUNT",
+        "ACCOUNT_GROUP",
+        "RESOURCE",
+        "RESOURCE_GROUP"
+      ],
+      "assessment_mode": "EVENT_HISTORY",
+      "bindings": [
+        {
+          "rule_id": "PAM-MFAACC-001",
+          "rule_version": "1.0",
+          "evidence_type": "privileged_access_authentication",
+          "parameter_map": {
+            "accepted_methods": "accepted_methods"
+          },
+          "evidence_schema_version": "1.0"
+        }
+      ],
+      "implementation": {
+        "status": "EXECUTABLE",
+        "limitations": [
+          "Failed-logon monitoring (PC-AUTH-FAILURE-MONITORING) is not MFA evidence."
+        ]
+      },
+      "addresses_gap_rules": [
+        "PAM-MFAACC-001"
+      ],
+      "definition_digest": "sha256:f1f0abfbaaf47406a97399f99e6fa56f02cbc58c94283eb0b386301f500a200e",
+      "assessability": {
+        "end_to_end_assessable": null,
+        "reason": "Send the organization scope header and tenant_id to see collector support for this organization.",
+        "bindings": []
+      }
+    },
+    {
+      "control_id": "PC-MFA-CONFIGURATION",
+      "control_version": "1.0",
+      "category": "authentication",
+      "pam_control_id": "PAMC-MFA-PRIVILEGED",
+      "title": "MFA enforcement configured",
+      "description": "MFA is configured as enforced, with an accepted method, for privileged users and accounts.",
+      "parameter_schema": {
+        "type": "object",
+        "properties": {
+          "accepted_methods": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "enum": [
+                "email_otp",
+                "fido2",
+                "hardware_token",
+                "push",
+                "smart_card",
+                "sms",
+                "totp"
+              ]
+            },
+            "minItems": 1,
+            "maxItems": 7,
+            "uniqueItems": true,
+            "title": "Accepted MFA methods"
+          }
+        },
+        "required": [
+          "accepted_methods"
+        ],
+        "additionalProperties": false
+      },
+      "ui": {
+        "order": [
+          "accepted_methods"
+        ],
+        "parameters": {
+          "accepted_methods": {
+            "label": "Accepted MFA methods",
+            "unit": "none",
+            "help": "At least one enforced method must be in this list."
+          }
+        }
+      },
+      "target_types": [
+        "ORGANIZATION",
+        "USER",
+        "USER_GROUP",
+        "ACCOUNT",
+        "ACCOUNT_GROUP"
+      ],
+      "assessment_mode": "CONFIGURATION_SNAPSHOT",
+      "bindings": [
+        {
+          "rule_id": "PAM-MFACFG-001",
+          "rule_version": "1.0",
+          "evidence_type": "mfa_configuration",
+          "parameter_map": {
+            "accepted_methods": "accepted_methods"
+          },
+          "evidence_schema_version": "1.0"
+        }
+      ],
+      "implementation": {
+        "status": "EXECUTABLE",
+        "limitations": [
+          "Configuration snapshot only: shows the configuration at captured_at, not that MFA was performed at each access. It therefore never resolves a requirement to use MFA when accessing (see PC-MFA-AT-ACCESS)."
+        ]
+      },
+      "addresses_gap_rules": [],
+      "definition_digest": "sha256:634639df7399480505c33c020457b1007a6076d400f6015bdf4cad72e3c2d554",
+      "assessability": {
+        "end_to_end_assessable": null,
+        "reason": "Send the organization scope header and tenant_id to see collector support for this organization.",
+        "bindings": []
+      }
+    },
+    {
+      "control_id": "PC-PASSWORD-POLICY",
+      "control_version": "1.0",
+      "category": "credential_lifecycle",
+      "pam_control_id": "PAMC-CRED-ROTATION",
+      "title": "Password composition policy",
+      "description": "Minimum length, character classes, entropy and history of privileged passwords.",
+      "parameter_schema": {
+        "type": "object",
+        "properties": {
+          "min_length": {
+            "type": "integer",
+            "minimum": 8,
+            "maximum": 256,
+            "title": "Minimum length"
+          },
+          "required_character_classes": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 4,
+            "title": "Character classes"
+          },
+          "min_entropy_bits": {
+            "type": "number",
+            "minimum": 0,
+            "maximum": 512,
+            "title": "Minimum entropy"
+          },
+          "history_depth": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 100,
+            "title": "Password history"
+          }
+        },
+        "required": [
+          "history_depth",
+          "min_entropy_bits",
+          "min_length",
+          "required_character_classes"
+        ],
+        "additionalProperties": false
+      },
+      "ui": {
+        "order": [
+          "min_length",
+          "required_character_classes",
+          "min_entropy_bits",
+          "history_depth"
+        ],
+        "parameters": {
+          "min_length": {
+            "label": "Minimum length",
+            "unit": "characters",
+            "help": ""
+          },
+          "required_character_classes": {
+            "label": "Character classes",
+            "unit": "count",
+            "help": ""
+          },
+          "min_entropy_bits": {
+            "label": "Minimum entropy",
+            "unit": "bits",
+            "help": ""
+          },
+          "history_depth": {
+            "label": "Password history",
+            "unit": "count",
+            "help": ""
+          }
+        }
+      },
+      "target_types": [
+        "ORGANIZATION",
+        "ACCOUNT",
+        "ACCOUNT_GROUP",
+        "RESOURCE",
+        "RESOURCE_GROUP"
+      ],
+      "assessment_mode": "CONFIGURATION_SNAPSHOT",
+      "bindings": [],
+      "implementation": {
+        "status": "NOT_IMPLEMENTED",
+        "limitations": [
+          "No rule or evidence contract exists; saved values are documented policy only and always report NO_EXECUTABLE_RULE."
+        ]
+      },
+      "addresses_gap_rules": [],
+      "definition_digest": "sha256:8086ccb5126e9d9ac9bfeb1ec654d0e536555bad8b2031cbedece66646c757e7",
+      "assessability": {
+        "end_to_end_assessable": null,
+        "reason": "Send the organization scope header and tenant_id to see collector support for this organization.",
+        "bindings": []
+      }
+    },
+    {
+      "control_id": "PC-POLICY-EXCEPTIONS",
+      "control_version": "1.0",
+      "category": "identity_governance",
+      "pam_control_id": "PAMC-POLICY-EXCEPTIONS",
+      "title": "Policy exception lifetime",
+      "description": "Policy exceptions are time-bound and not used after expiry or revocation.",
+      "parameter_schema": {
+        "type": "object",
+        "properties": {
+          "max_exception_duration_days": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 1095,
+            "title": "Maximum exception duration"
+          }
+        },
+        "required": [
+          "max_exception_duration_days"
+        ],
+        "additionalProperties": false
+      },
+      "ui": {
+        "order": [
+          "max_exception_duration_days"
+        ],
+        "parameters": {
+          "max_exception_duration_days": {
+            "label": "Maximum exception duration",
+            "unit": "days",
+            "help": ""
+          }
+        }
+      },
+      "target_types": [
+        "ORGANIZATION"
+      ],
+      "assessment_mode": "EVENT_HISTORY",
+      "bindings": [
+        {
+          "rule_id": "PAM-EXCEPTION-001",
+          "rule_version": "1.0",
+          "evidence_type": "policy_exception",
+          "parameter_map": {
+            "max_exception_duration_days": "max_exception_duration_days"
+          },
+          "evidence_schema_version": "1.0"
+        }
+      ],
+      "implementation": {
+        "status": "EXECUTABLE",
+        "limitations": []
+      },
+      "addresses_gap_rules": [
+        "PAM-EXCEPTION-001"
+      ],
+      "definition_digest": "sha256:bb835630e7be291980b4613933880185b5f920ef2d06cc928ebd75e4aa8c3c3e",
+      "assessability": {
+        "end_to_end_assessable": null,
+        "reason": "Send the organization scope header and tenant_id to see collector support for this organization.",
+        "bindings": []
+      }
+    },
+    {
+      "control_id": "PC-SEGREGATION-OF-DUTIES",
+      "control_version": "1.0",
+      "category": "segregation_of_duties",
+      "pam_control_id": "PAMC-SEGREGATION-OF-DUTIES",
+      "title": "Segregation of duties for privileged operations",
+      "description": "Role pairs that one identity must never hold together, and whether the PAM prevents or only detects it.",
+      "parameter_schema": {
+        "type": "object",
+        "properties": {
+          "conflicting_role_pairs": {
+            "type": "array",
+            "minItems": 1,
+            "maxItems": 50,
+            "uniqueItems": true,
+            "items": {
+              "type": "object",
+              "properties": {
+                "first_role": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 128,
+                  "pattern": "^[A-Za-z0-9][A-Za-z0-9 ._:-]{0,127}$"
+                },
+                "second_role": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 128,
+                  "pattern": "^[A-Za-z0-9][A-Za-z0-9 ._:-]{0,127}$"
+                }
+              },
+              "required": [
+                "first_role",
+                "second_role"
+              ],
+              "additionalProperties": false
+            }
+          },
+          "enforcement": {
+            "type": "string",
+            "enum": [
+              "PREVENT",
+              "DETECT"
+            ]
+          }
+        },
+        "required": [
+          "conflicting_role_pairs",
+          "enforcement"
+        ],
+        "additionalProperties": false
+      },
+      "ui": {
+        "order": [
+          "conflicting_role_pairs",
+          "enforcement"
+        ],
+        "parameters": {
+          "conflicting_role_pairs": {
+            "label": "Conflicting role pairs",
+            "unit": "none",
+            "help": "Opaque PAM role names."
+          },
+          "enforcement": {
+            "label": "Enforcement",
+            "unit": "none",
+            "help": ""
+          }
+        }
+      },
+      "target_types": [
+        "ORGANIZATION",
+        "USER_GROUP"
+      ],
+      "assessment_mode": "CONFIGURATION_SNAPSHOT",
+      "bindings": [],
+      "implementation": {
+        "status": "NOT_IMPLEMENTED",
+        "limitations": [
+          "No rule or evidence contract exists; documented policy only."
+        ]
+      },
+      "addresses_gap_rules": [],
+      "definition_digest": "sha256:80826f547f642bf3c0b8ef7a702813deb58d978450eb9f7bcac2beee9d27405d",
+      "assessability": {
+        "end_to_end_assessable": null,
+        "reason": "Send the organization scope header and tenant_id to see collector support for this organization.",
+        "bindings": []
+      }
+    },
+    {
+      "control_id": "PC-SESSION-DURATION-LIMIT",
+      "control_version": "1.0",
+      "category": "session_monitoring",
+      "pam_control_id": "PAMC-SESSION-LIMITS",
+      "title": "Privileged session duration limit",
+      "description": "No privileged session lasts longer than the maximum.",
+      "parameter_schema": {
+        "type": "object",
+        "properties": {
+          "max_session_minutes": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 10080,
+            "title": "Maximum session duration"
+          }
+        },
+        "required": [
+          "max_session_minutes"
+        ],
+        "additionalProperties": false
+      },
+      "ui": {
+        "order": [
+          "max_session_minutes"
+        ],
+        "parameters": {
+          "max_session_minutes": {
+            "label": "Maximum session duration",
+            "unit": "minutes",
+            "help": "Open sessions are measured to the period end."
+          }
+        }
+      },
+      "target_types": [
+        "ORGANIZATION",
+        "ACCOUNT",
+        "ACCOUNT_GROUP",
+        "RESOURCE",
+        "RESOURCE_GROUP"
+      ],
+      "assessment_mode": "EVENT_HISTORY",
+      "bindings": [
+        {
+          "rule_id": "PAM-SESSDUR-001",
+          "rule_version": "1.0",
+          "evidence_type": "privileged_session",
+          "parameter_map": {
+            "max_session_minutes": "max_session_minutes"
+          },
+          "evidence_schema_version": "1.0"
+        }
+      ],
+      "implementation": {
+        "status": "EXECUTABLE",
+        "limitations": []
+      },
+      "addresses_gap_rules": [
+        "PAM-SESSDUR-001"
+      ],
+      "definition_digest": "sha256:e0b9eadc7ce53de9ae66419b58d3fe14bdd77e24fb2d42306925faf306398844",
+      "assessability": {
+        "end_to_end_assessable": null,
+        "reason": "Send the organization scope header and tenant_id to see collector support for this organization.",
+        "bindings": []
+      }
+    },
+    {
+      "control_id": "PC-SESSION-IDLE-LIMIT",
+      "control_version": "1.0",
+      "category": "session_monitoring",
+      "pam_control_id": "PAMC-SESSION-LIMITS",
+      "title": "Privileged session idle limit",
+      "description": "Session policies applying to privileged sessions lock or terminate idle sessions within the limit.",
+      "parameter_schema": {
+        "type": "object",
+        "properties": {
+          "max_idle_minutes": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 1440,
+            "title": "Maximum idle time"
+          }
+        },
+        "required": [
+          "max_idle_minutes"
+        ],
+        "additionalProperties": false
+      },
+      "ui": {
+        "order": [
+          "max_idle_minutes"
+        ],
+        "parameters": {
+          "max_idle_minutes": {
+            "label": "Maximum idle time",
+            "unit": "minutes",
+            "help": "Configured idle timeout must not exceed this."
+          }
+        }
+      },
+      "target_types": [
+        "ORGANIZATION",
+        "SESSION_POLICY"
+      ],
+      "assessment_mode": "CONFIGURATION_SNAPSHOT",
+      "bindings": [
+        {
+          "rule_id": "PAM-SESSIDLE-001",
+          "rule_version": "1.0",
+          "evidence_type": "session_policy_configuration",
+          "parameter_map": {
+            "max_idle_minutes": "max_idle_minutes"
+          },
+          "evidence_schema_version": "1.0"
+        }
+      ],
+      "implementation": {
+        "status": "EXECUTABLE",
+        "limitations": [
+          "Configuration snapshot of session policies; individual sessions' idle behaviour is not measured."
+        ]
+      },
+      "addresses_gap_rules": [
+        "PAM-SESSIDLE-001"
+      ],
+      "definition_digest": "sha256:7f0836c60282c1f4d4e6ad597df7d7b948f224160769417cf2c6517daabc9ef2",
+      "assessability": {
+        "end_to_end_assessable": null,
+        "reason": "Send the organization scope header and tenant_id to see collector support for this organization.",
+        "bindings": []
+      }
+    },
+    {
+      "control_id": "PC-SESSION-RECORDING",
+      "control_version": "1.0",
+      "category": "session_monitoring",
+      "pam_control_id": "PAMC-SESSION-RECORDING",
+      "title": "Privileged session recording",
+      "description": "Privileged sessions that the PAM recording policy marks as requiring recording must have a recording.",
+      "parameter_schema": {
+        "type": "object",
+        "properties": {
+          "accept_partial_recordings": {
+            "type": "boolean",
+            "title": "Accept partial recordings"
+          }
+        },
+        "required": [
+          "accept_partial_recordings"
+        ],
+        "additionalProperties": false
+      },
+      "ui": {
+        "order": [
+          "accept_partial_recordings"
+        ],
+        "parameters": {
+          "accept_partial_recordings": {
+            "label": "Accept partial recordings",
+            "unit": "none",
+            "help": "When false, a PARTIAL recording is a violation."
+          }
+        }
+      },
+      "target_types": [
+        "ORGANIZATION",
+        "USER",
+        "USER_GROUP",
+        "ACCOUNT",
+        "ACCOUNT_GROUP",
+        "RESOURCE",
+        "RESOURCE_GROUP"
+      ],
+      "assessment_mode": "EVENT_HISTORY",
+      "bindings": [
+        {
+          "rule_id": "PAM-SESSREC-001",
+          "rule_version": "1.0",
+          "evidence_type": "privileged_session",
+          "parameter_map": {
+            "accept_partial_recordings": "accept_partial_recordings"
+          },
+          "evidence_schema_version": "1.0"
+        }
+      ],
+      "implementation": {
+        "status": "EXECUTABLE",
+        "limitations": [
+          "Which sessions require recording comes from the PAM recording policy (recording_required); the control does not decide that.",
+          "Tests that required recordings exist. It does not test who may view or hear them, under which circumstances recording applies, or legal review of session auditing."
+        ]
+      },
+      "addresses_gap_rules": [
+        "PAM-SESSREC-001"
+      ],
+      "definition_digest": "sha256:4f276d7716deae5b5cb966bd4ad92654ee3ea93d12d3d8c60fc56a61d94222ee",
+      "assessability": {
+        "end_to_end_assessable": null,
+        "reason": "Send the organization scope header and tenant_id to see collector support for this organization.",
+        "bindings": []
+      }
+    }
+  ]
+}

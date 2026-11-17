@@ -1,0 +1,93 @@
+{
+  "request": {
+    "method": "POST",
+    "path": "/api/v1/rules/validate",
+    "headers": {
+      "Authorization": "Bearer securden-example.<redacted>",
+      "X-Correlation-ID": "securden-example-0001"
+    },
+    "body": {
+      "tenant_id": "acme",
+      "rule": {
+        "rule_id": "CUST-ACME-SESSREC-001",
+        "version": "1.0",
+        "title": "Production sessions must be recorded",
+        "description": "Any privileged session on prod-tagged accounts without an AVAILABLE recording.",
+        "severity": "CRITICAL",
+        "evidence_type": "privileged_session",
+        "subject_field": "session_id",
+        "scope": {
+          "all": [
+            {
+              "field": "scope_tags",
+              "op": "contains",
+              "value": "prod"
+            }
+          ]
+        },
+        "violation_when": {
+          "all": [
+            {
+              "field": "recording_status",
+              "op": "ne",
+              "value": "AVAILABLE"
+            }
+          ]
+        },
+        "tolerance": 0,
+        "effective_from": "2026-01-01T00:00:00Z",
+        "framework_mappings": [
+          {
+            "framework": "ISO27001:2022",
+            "control": "8.15",
+            "title": "Logging"
+          }
+        ],
+        "remediation": "Investigate the recording gateway."
+      }
+    }
+  },
+  "response": {
+    "status": 200,
+    "body": {
+      "tenant_id": "acme",
+      "valid": true,
+      "activated": false,
+      "errors": [],
+      "warnings": [],
+      "definition_digest": "sha256:30bf89df076cba8214b85c30a38b5637e8f4d79ccd9749b25da4a24e2271b162",
+      "compiled": {
+        "rule_id": "CUST-ACME-SESSREC-001",
+        "rule_version": "1.0",
+        "subject_field": "session_id",
+        "tolerance": 0,
+        "scope": {
+          "mode": "all",
+          "conditions": [
+            {
+              "id": "scope.c1",
+              "field": "scope_tags",
+              "type": "string_list",
+              "op": "contains",
+              "value": "prod"
+            }
+          ],
+          "groups": []
+        },
+        "violation": {
+          "mode": "all",
+          "conditions": [
+            {
+              "id": "c1",
+              "field": "recording_status",
+              "type": "enum",
+              "op": "ne",
+              "value": "AVAILABLE"
+            }
+          ],
+          "groups": []
+        }
+      }
+    }
+  }
+}

@@ -1,0 +1,163 @@
+{
+  "request": {
+    "method": "POST",
+    "path": "/api/v1/rules/test",
+    "headers": {
+      "Authorization": "Bearer securden-example.<redacted>",
+      "X-Correlation-ID": "securden-example-0001"
+    },
+    "body": {
+      "tenant_id": "acme",
+      "rule": {
+        "rule_id": "CUST-ACME-SESSREC-001",
+        "version": "1.0",
+        "title": "Production sessions must be recorded",
+        "description": "Any privileged session on prod-tagged accounts without an AVAILABLE recording.",
+        "severity": "CRITICAL",
+        "evidence_type": "privileged_session",
+        "subject_field": "session_id",
+        "scope": {
+          "all": [
+            {
+              "field": "scope_tags",
+              "op": "contains",
+              "value": "prod"
+            }
+          ]
+        },
+        "violation_when": {
+          "all": [
+            {
+              "field": "recording_status",
+              "op": "ne",
+              "value": "AVAILABLE"
+            }
+          ]
+        },
+        "tolerance": 0,
+        "effective_from": "2026-01-01T00:00:00Z",
+        "framework_mappings": [
+          {
+            "framework": "ISO27001:2022",
+            "control": "8.15",
+            "title": "Logging"
+          }
+        ],
+        "remediation": "Investigate the recording gateway."
+      },
+      "reporting_period": {
+        "start": "2026-10-13T00:00:00Z",
+        "end": "2026-11-12T00:00:00Z"
+      },
+      "evidence": {
+        "evidence_type": "privileged_session",
+        "records": [
+          {
+            "record_id": "sess-example-1",
+            "session_id": "s-1",
+            "account_id": "acct-1",
+            "user_id": "u-1",
+            "started_at": "2026-11-07T00:00:00Z",
+            "recording_required": true,
+            "recording_status": "FAILED",
+            "scope_tags": [
+              "prod"
+            ]
+          },
+          {
+            "record_id": "sess-example-2",
+            "session_id": "s-2",
+            "account_id": "acct-2",
+            "user_id": "u-2",
+            "started_at": "2026-11-08T00:00:00Z",
+            "recording_required": true,
+            "recording_status": "AVAILABLE",
+            "recording_reference": "rec-2",
+            "scope_tags": [
+              "prod"
+            ]
+          }
+        ],
+        "completeness": {
+          "expected_record_count": 2,
+          "received_record_count": 2,
+          "source_complete": true
+        }
+      }
+    }
+  },
+  "response": {
+    "status": 200,
+    "body": {
+      "evaluation_id": "eval-49fe675771964c90b897d6e6ec447e1b",
+      "correlation_id": "securden-example-0001",
+      "tenant_id": "acme",
+      "item_reference": null,
+      "rule_id": "CUST-ACME-SESSREC-001",
+      "rule_version": "1.0",
+      "policy_bundle_version": "2026.11.12-1",
+      "status": "FAIL",
+      "severity": "CRITICAL",
+      "metrics": {
+        "records_in_scope": 2,
+        "records_matching_violation": 1,
+        "tolerance": 0
+      },
+      "evidence_references": [
+        "sess-example-1",
+        "sess-example-2"
+      ],
+      "evidence_references_truncated": false,
+      "violations": [
+        {
+          "record_id": "sess-example-1",
+          "subject_id": "s-1",
+          "reasons": [
+            "c1"
+          ],
+          "exception_ids": null
+        }
+      ],
+      "excepted": [],
+      "undetermined": [],
+      "findings_truncated": false,
+      "evidence_completeness": {
+        "complete": true,
+        "gaps": [],
+        "expected_record_count": 2,
+        "received_record_count": 2,
+        "evaluated_record_count": 2,
+        "in_scope_record_count": 2
+      },
+      "decision_details": {
+        "summary": "One or more in-scope records violate the control test.",
+        "engine": "securden.custom.v1",
+        "policy_package": "securden.custom.v1",
+        "rule_source": "DRAFT",
+        "evaluation_mode": "TEST",
+        "as_of": "2026-11-12T00:00:00.000000Z",
+        "violation_count": 1,
+        "tolerance": 0,
+        "parameters": {
+          "scope_tags": []
+        },
+        "customer_policy_version": null,
+        "input_digest": "sha256:2c89e0ef1dcb1f22b55b72926400b66cef4920c70ff7f0129cd7f88d0d6d3df1"
+      },
+      "framework_mappings": [
+        {
+          "framework": "ISO27001:2022",
+          "control": "8.15",
+          "title": "Logging"
+        }
+      ],
+      "framework_mapping_disclaimer": "Framework mappings indicate which ISO/IEC 27001:2022 Annex A controls or AICPA SOC 2 Trust Services Criteria a control test provides evidence toward. They are not certification, attestation, or audit conclusions; only an accredited certification body or licensed CPA firm can make those determinations.",
+      "remediation": "Investigate the recording gateway.",
+      "reporting_period": {
+        "start": "2026-10-13T00:00:00.000000Z",
+        "end": "2026-11-12T00:00:00.000000Z"
+      },
+      "evaluated_at": "2026-11-12T07:36:16.805330Z"
+    }
+  }
+}

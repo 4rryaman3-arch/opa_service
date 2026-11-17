@@ -1,0 +1,7 @@
+# Runtime dependencies (pinned). Keep in sync with pyproject.toml.
+fastapi==0.115.12
+pydantic==2.11.4
+pydantic-settings==2.9.1
+uvicorn==0.34.2
+httpx==0.28.1
+python-dotenv==1.2.4

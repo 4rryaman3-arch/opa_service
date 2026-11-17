@@ -1,0 +1,585 @@
+{
+  "$comment": "Semantic allowlist for customer rules. Only these fields and operators are accepted.",
+  "max_total_conditions": 25,
+  "max_nesting": "root group -> leaf groups (2 levels)",
+  "operators_by_field_type": {
+    "string": [
+      "eq",
+      "in",
+      "is_null",
+      "ne",
+      "not_in",
+      "not_null"
+    ],
+    "enum": [
+      "eq",
+      "in",
+      "is_null",
+      "ne",
+      "not_in",
+      "not_null"
+    ],
+    "boolean": [
+      "eq",
+      "ne"
+    ],
+    "integer": [
+      "eq",
+      "gt",
+      "gte",
+      "in",
+      "lt",
+      "lte",
+      "ne",
+      "not_in"
+    ],
+    "datetime": [
+      "gt",
+      "gte",
+      "is_null",
+      "lt",
+      "lte",
+      "not_null",
+      "older_than_days",
+      "within_last_days"
+    ],
+    "string_list": [
+      "contains"
+    ]
+  },
+  "null_operators_require_nullable_field": [
+    "is_null",
+    "not_null"
+  ],
+  "fields": {
+    "credential_rotation": {
+      "record_id": {
+        "type": "string",
+        "nullable": false
+      },
+      "scope_tags": {
+        "type": "string_list",
+        "nullable": false
+      },
+      "account_id": {
+        "type": "string",
+        "nullable": false
+      },
+      "privileged": {
+        "type": "boolean",
+        "nullable": false
+      },
+      "last_rotated_at": {
+        "type": "datetime",
+        "nullable": true
+      },
+      "last_rotation_status": {
+        "type": "enum",
+        "nullable": true,
+        "values": [
+          "SUCCESS",
+          "FAILED"
+        ]
+      }
+    },
+    "privileged_session": {
+      "record_id": {
+        "type": "string",
+        "nullable": false
+      },
+      "scope_tags": {
+        "type": "string_list",
+        "nullable": false
+      },
+      "session_id": {
+        "type": "string",
+        "nullable": false
+      },
+      "account_id": {
+        "type": "string",
+        "nullable": false
+      },
+      "user_id": {
+        "type": "string",
+        "nullable": false
+      },
+      "started_at": {
+        "type": "datetime",
+        "nullable": false
+      },
+      "ended_at": {
+        "type": "datetime",
+        "nullable": true
+      },
+      "recording_required": {
+        "type": "boolean",
+        "nullable": false
+      },
+      "recording_status": {
+        "type": "enum",
+        "nullable": false,
+        "values": [
+          "AVAILABLE",
+          "PARTIAL",
+          "MISSING",
+          "FAILED",
+          "PROCESSING"
+        ]
+      },
+      "recording_reference": {
+        "type": "string",
+        "nullable": true
+      }
+    },
+    "privileged_access_request": {
+      "record_id": {
+        "type": "string",
+        "nullable": false
+      },
+      "scope_tags": {
+        "type": "string_list",
+        "nullable": false
+      },
+      "access_id": {
+        "type": "string",
+        "nullable": false
+      },
+      "user_id": {
+        "type": "string",
+        "nullable": false
+      },
+      "account_id": {
+        "type": "string",
+        "nullable": false
+      },
+      "accessed_at": {
+        "type": "datetime",
+        "nullable": false
+      },
+      "approval_required": {
+        "type": "boolean",
+        "nullable": false
+      },
+      "approval_status": {
+        "type": "enum",
+        "nullable": false,
+        "values": [
+          "APPROVED",
+          "PENDING",
+          "DENIED",
+          "NONE"
+        ]
+      },
+      "approval_id": {
+        "type": "string",
+        "nullable": true
+      },
+      "approved_at": {
+        "type": "datetime",
+        "nullable": true
+      },
+      "approver_id": {
+        "type": "string",
+        "nullable": true
+      }
+    },
+    "privileged_account": {
+      "record_id": {
+        "type": "string",
+        "nullable": false
+      },
+      "scope_tags": {
+        "type": "string_list",
+        "nullable": false
+      },
+      "account_id": {
+        "type": "string",
+        "nullable": false
+      },
+      "privileged": {
+        "type": "boolean",
+        "nullable": false
+      },
+      "enabled": {
+        "type": "boolean",
+        "nullable": false
+      },
+      "created_at": {
+        "type": "datetime",
+        "nullable": false
+      },
+      "last_used_at": {
+        "type": "datetime",
+        "nullable": true
+      }
+    },
+    "authentication_summary": {
+      "record_id": {
+        "type": "string",
+        "nullable": false
+      },
+      "scope_tags": {
+        "type": "string_list",
+        "nullable": false
+      },
+      "principal_id": {
+        "type": "string",
+        "nullable": false
+      },
+      "window_start": {
+        "type": "datetime",
+        "nullable": false
+      },
+      "window_end": {
+        "type": "datetime",
+        "nullable": false
+      },
+      "failed_attempts": {
+        "type": "integer",
+        "nullable": false
+      },
+      "lockout_triggered": {
+        "type": "boolean",
+        "nullable": false
+      }
+    },
+    "access_authorization": {
+      "record_id": {
+        "type": "string",
+        "nullable": false
+      },
+      "scope_tags": {
+        "type": "string_list",
+        "nullable": false
+      },
+      "access_id": {
+        "type": "string",
+        "nullable": false
+      },
+      "user_id": {
+        "type": "string",
+        "nullable": false
+      },
+      "account_id": {
+        "type": "string",
+        "nullable": false
+      },
+      "accessed_at": {
+        "type": "datetime",
+        "nullable": false
+      },
+      "entitlement_status": {
+        "type": "enum",
+        "nullable": false,
+        "values": [
+          "AUTHORIZED",
+          "NOT_AUTHORIZED",
+          "REVOKED",
+          "UNKNOWN"
+        ]
+      },
+      "entitlement_id": {
+        "type": "string",
+        "nullable": true
+      },
+      "entitlement_valid_from": {
+        "type": "datetime",
+        "nullable": true
+      },
+      "entitlement_valid_to": {
+        "type": "datetime",
+        "nullable": true
+      }
+    },
+    "break_glass_event": {
+      "record_id": {
+        "type": "string",
+        "nullable": false
+      },
+      "scope_tags": {
+        "type": "string_list",
+        "nullable": false
+      },
+      "event_id": {
+        "type": "string",
+        "nullable": false
+      },
+      "user_id": {
+        "type": "string",
+        "nullable": false
+      },
+      "account_id": {
+        "type": "string",
+        "nullable": false
+      },
+      "activated_at": {
+        "type": "datetime",
+        "nullable": false
+      },
+      "justification_provided": {
+        "type": "boolean",
+        "nullable": false
+      },
+      "justification_length": {
+        "type": "integer",
+        "nullable": false
+      },
+      "ticket_reference": {
+        "type": "string",
+        "nullable": true
+      },
+      "post_review_completed": {
+        "type": "boolean",
+        "nullable": false
+      },
+      "post_review_at": {
+        "type": "datetime",
+        "nullable": true
+      }
+    },
+    "policy_exception": {
+      "record_id": {
+        "type": "string",
+        "nullable": false
+      },
+      "scope_tags": {
+        "type": "string_list",
+        "nullable": false
+      },
+      "exception_id": {
+        "type": "string",
+        "nullable": false
+      },
+      "rule_id": {
+        "type": "string",
+        "nullable": false
+      },
+      "status": {
+        "type": "enum",
+        "nullable": false,
+        "values": [
+          "ACTIVE",
+          "EXPIRED",
+          "REVOKED"
+        ]
+      },
+      "approved_at": {
+        "type": "datetime",
+        "nullable": false
+      },
+      "expires_at": {
+        "type": "datetime",
+        "nullable": false
+      },
+      "last_used_at": {
+        "type": "datetime",
+        "nullable": true
+      }
+    },
+    "access_review": {
+      "record_id": {
+        "type": "string",
+        "nullable": false
+      },
+      "scope_tags": {
+        "type": "string_list",
+        "nullable": false
+      },
+      "account_id": {
+        "type": "string",
+        "nullable": false
+      },
+      "privileged": {
+        "type": "boolean",
+        "nullable": false
+      },
+      "enabled": {
+        "type": "boolean",
+        "nullable": false
+      },
+      "owner_id": {
+        "type": "string",
+        "nullable": true
+      },
+      "reviewer_id": {
+        "type": "string",
+        "nullable": true
+      },
+      "last_review_completed_at": {
+        "type": "datetime",
+        "nullable": true
+      },
+      "last_review_outcome": {
+        "type": "enum",
+        "nullable": true,
+        "values": [
+          "CERTIFIED",
+          "REVOKED"
+        ]
+      }
+    },
+    "audit_log_coverage": {
+      "record_id": {
+        "type": "string",
+        "nullable": false
+      },
+      "scope_tags": {
+        "type": "string_list",
+        "nullable": false
+      },
+      "source_id": {
+        "type": "string",
+        "nullable": false
+      },
+      "coverage_start": {
+        "type": "datetime",
+        "nullable": false
+      },
+      "coverage_end": {
+        "type": "datetime",
+        "nullable": false
+      },
+      "expected_event_count": {
+        "type": "integer",
+        "nullable": false
+      },
+      "received_event_count": {
+        "type": "integer",
+        "nullable": false
+      },
+      "max_gap_seconds": {
+        "type": "integer",
+        "nullable": false
+      },
+      "integrity_verified": {
+        "type": "boolean",
+        "nullable": false
+      }
+    },
+    "mfa_configuration": {
+      "record_id": {
+        "type": "string",
+        "nullable": false
+      },
+      "scope_tags": {
+        "type": "string_list",
+        "nullable": false
+      },
+      "principal_id": {
+        "type": "string",
+        "nullable": false
+      },
+      "principal_type": {
+        "type": "enum",
+        "nullable": false,
+        "values": [
+          "USER",
+          "ACCOUNT"
+        ]
+      },
+      "privileged": {
+        "type": "boolean",
+        "nullable": false
+      },
+      "enabled": {
+        "type": "boolean",
+        "nullable": false
+      },
+      "mfa_enforced": {
+        "type": "boolean",
+        "nullable": true
+      },
+      "mfa_methods": {
+        "type": "string_list",
+        "nullable": false
+      },
+      "captured_at": {
+        "type": "datetime",
+        "nullable": false
+      }
+    },
+    "privileged_access_authentication": {
+      "record_id": {
+        "type": "string",
+        "nullable": false
+      },
+      "scope_tags": {
+        "type": "string_list",
+        "nullable": false
+      },
+      "access_id": {
+        "type": "string",
+        "nullable": false
+      },
+      "user_id": {
+        "type": "string",
+        "nullable": false
+      },
+      "account_id": {
+        "type": "string",
+        "nullable": false
+      },
+      "accessed_at": {
+        "type": "datetime",
+        "nullable": false
+      },
+      "access_granted": {
+        "type": "boolean",
+        "nullable": false
+      },
+      "mfa_status": {
+        "type": "enum",
+        "nullable": false,
+        "values": [
+          "VERIFIED",
+          "NOT_PERFORMED",
+          "FAILED",
+          "UNKNOWN"
+        ]
+      },
+      "mfa_method": {
+        "type": "enum",
+        "nullable": true,
+        "values": [
+          "totp",
+          "push",
+          "fido2",
+          "smart_card",
+          "hardware_token",
+          "sms",
+          "email_otp"
+        ]
+      }
+    },
+    "session_policy_configuration": {
+      "record_id": {
+        "type": "string",
+        "nullable": false
+      },
+      "scope_tags": {
+        "type": "string_list",
+        "nullable": false
+      },
+      "policy_id": {
+        "type": "string",
+        "nullable": false
+      },
+      "applies_to_privileged": {
+        "type": "boolean",
+        "nullable": false
+      },
+      "idle_timeout_enabled": {
+        "type": "boolean",
+        "nullable": false
+      },
+      "idle_timeout_minutes": {
+        "type": "integer",
+        "nullable": true
+      },
+      "captured_at": {
+        "type": "datetime",
+        "nullable": false
+      }
+    }
+  }
+}

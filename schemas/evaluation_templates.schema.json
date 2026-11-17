@@ -1,0 +1,308 @@
+{
+  "$defs": {
+    "Affected": {
+      "additionalProperties": false,
+      "properties": {
+        "requirement_ids": {
+          "items": {
+            "type": "integer"
+          },
+          "title": "Requirement Ids",
+          "type": "array"
+        },
+        "mapping_ids": {
+          "items": {
+            "type": "integer"
+          },
+          "title": "Mapping Ids",
+          "type": "array"
+        },
+        "rule_ids": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Rule Ids",
+          "type": "array"
+        }
+      },
+      "required": [
+        "requirement_ids",
+        "mapping_ids",
+        "rule_ids"
+      ],
+      "title": "Affected",
+      "type": "object"
+    },
+    "Blocker": {
+      "additionalProperties": false,
+      "properties": {
+        "code": {
+          "title": "Code",
+          "type": "string"
+        },
+        "message": {
+          "title": "Message",
+          "type": "string"
+        },
+        "affected": {
+          "$ref": "#/$defs/Affected"
+        }
+      },
+      "required": [
+        "code",
+        "message",
+        "affected"
+      ],
+      "title": "Blocker",
+      "type": "object"
+    },
+    "TemplateItem": {
+      "additionalProperties": false,
+      "properties": {
+        "framework_id": {
+          "title": "Framework Id",
+          "type": "string"
+        },
+        "title": {
+          "title": "Title",
+          "type": "string"
+        },
+        "review_status": {
+          "enum": [
+            "PENDING",
+            "APPROVED",
+            "REJECTED"
+          ],
+          "title": "Review Status",
+          "type": "string"
+        },
+        "lifecycle": {
+          "title": "Lifecycle",
+          "type": "string"
+        },
+        "jurisdiction_code": {
+          "title": "Jurisdiction Code",
+          "type": "string"
+        },
+        "jurisdiction_match": {
+          "anyOf": [
+            {
+              "enum": [
+                "EXACT",
+                "INHERITED"
+              ],
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "EXACT: registered for the requested jurisdiction. INHERITED: registered for a parent or a group it belongs to. null when no jurisdiction filter was given. Neither value is an applicability decision.",
+          "title": "Jurisdiction Match"
+        },
+        "jurisdiction_path": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Jurisdiction Path"
+        },
+        "published_requirements": {
+          "title": "Published Requirements",
+          "type": "integer"
+        },
+        "automated_requirements": {
+          "title": "Automated Requirements",
+          "type": "integer"
+        },
+        "manual_requirements": {
+          "title": "Manual Requirements",
+          "type": "integer"
+        },
+        "unmapped_requirements": {
+          "title": "Unmapped Requirements",
+          "type": "integer"
+        },
+        "blocked_requirements": {
+          "title": "Blocked Requirements",
+          "type": "integer"
+        },
+        "mapping_count": {
+          "title": "Mapping Count",
+          "type": "integer"
+        },
+        "execution_count": {
+          "title": "Execution Count",
+          "type": "integer"
+        },
+        "readiness": {
+          "enum": [
+            "NOT_READY",
+            "PARTIAL",
+            "READY"
+          ],
+          "title": "Readiness",
+          "type": "string"
+        },
+        "blockers": {
+          "items": {
+            "$ref": "#/$defs/Blocker"
+          },
+          "title": "Blockers",
+          "type": "array"
+        },
+        "assessable_requirements": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Assessable Requirements"
+        },
+        "source_origin": {
+          "anyOf": [
+            {
+              "enum": [
+                "UPLOADED_DOCUMENT",
+                "OFFICIAL_DISCOVERY",
+                "MIXED"
+              ],
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Source Origin"
+        },
+        "updated_at": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Updated At"
+        }
+      },
+      "required": [
+        "framework_id",
+        "title",
+        "review_status",
+        "lifecycle",
+        "jurisdiction_code",
+        "jurisdiction_match",
+        "jurisdiction_path",
+        "published_requirements",
+        "automated_requirements",
+        "manual_requirements",
+        "unmapped_requirements",
+        "blocked_requirements",
+        "mapping_count",
+        "execution_count",
+        "readiness",
+        "blockers"
+      ],
+      "title": "TemplateItem",
+      "type": "object"
+    }
+  },
+  "additionalProperties": false,
+  "properties": {
+    "schema_version": {
+      "title": "Schema Version",
+      "type": "string"
+    },
+    "catalog_version": {
+      "title": "Catalog Version",
+      "type": "integer"
+    },
+    "policy_bundle_version": {
+      "title": "Policy Bundle Version",
+      "type": "string"
+    },
+    "as_of": {
+      "title": "As Of",
+      "type": "string"
+    },
+    "jurisdiction": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "title": "Jurisdiction"
+    },
+    "include_inherited": {
+      "title": "Include Inherited",
+      "type": "boolean"
+    },
+    "items": {
+      "items": {
+        "$ref": "#/$defs/TemplateItem"
+      },
+      "title": "Items",
+      "type": "array"
+    },
+    "has_more": {
+      "title": "Has More",
+      "type": "boolean"
+    },
+    "next_cursor": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "title": "Next Cursor"
+    },
+    "note": {
+      "title": "Note",
+      "type": "string"
+    },
+    "organization_scope": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Organization Scope"
+    }
+  },
+  "required": [
+    "schema_version",
+    "catalog_version",
+    "policy_bundle_version",
+    "as_of",
+    "jurisdiction",
+    "include_inherited",
+    "items",
+    "has_more",
+    "next_cursor",
+    "note"
+  ],
+  "title": "TemplatePage",
+  "type": "object"
+}

@@ -1,0 +1,52 @@
+{
+  "schema_version": "1.0",
+  "catalog_version": 4,
+  "mapping": {
+    "id": 1,
+    "requirement_id": 1,
+    "pam_control_id": "PAMC-CRED-ROTATION",
+    "strength": "PARTIAL",
+    "rationale": "Synthetic fixture: the rule measures the rotation interval the passage states.",
+    "limitations": "Synthetic fixture: covers accounts managed in Securden only.",
+    "status": "APPROVED",
+    "created_by": "deploy",
+    "created_at": "2026-11-13T01:23:29.024085Z",
+    "published_seq": 3,
+    "assessment": "AUTOMATED",
+    "rule_id": "PAM-ROTATION-001",
+    "rule_version_min": "1.1",
+    "rule_version_max": null,
+    "evidence_type": "credential_rotation",
+    "override_constraints": {
+      "max_rotation_age_days": {
+        "max": 90,
+        "min": 1
+      }
+    },
+    "coverage": "PARTIAL",
+    "control_reference": "#2 Article 7 Privileged credentials",
+    "mapping_key": "SYN-EU-ACT:1:PAMC-CRED-ROTATION",
+    "mapping_version": 1,
+    "parameters": {
+      "max_rotation_age_days": 90
+    },
+    "framework_id": "SYN-EU-ACT",
+    "section_ref": "#2 Article 7 Privileged credentials",
+    "requirement_status": "APPROVED",
+    "last_review": {
+      "decision": "APPROVED",
+      "reviewer": "deploy",
+      "comment": "Synthetic fixture review.",
+      "decided_at": "2026-11-13T01:23:29.033587Z"
+    }
+  },
+  "reviews": [
+    {
+      "id": 6,
+      "decision": "APPROVED",
+      "reviewer": "deploy",
+      "comment": "Synthetic fixture review.",
+      "decided_at": "2026-11-13T01:23:29.033587Z"
+    }
+  ]
+}

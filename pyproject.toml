@@ -1,0 +1,29 @@
+[project]
+name = "securden-opm-service"
+version = "1.0.0"
+description = "Standalone Securden compliance policy evaluation service (FastAPI + Open Policy Agent)"
+requires-python = ">=3.11"
+dependencies = [
+    "fastapi==0.115.12",
+    "pydantic==2.11.4",
+    "pydantic-settings==2.9.1",
+    "uvicorn==0.34.2",
+    "httpx==0.28.1",
+    "python-dotenv==1.2.4",
+]
+
+[project.optional-dependencies]
+catalog = ["pypdf==7.0.1"]
+dev = [
+    "pytest==8.3.5",
+    "cryptography==44.0.3",
+]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-ra"
+filterwarnings = ["ignore:The anyio.abc.BlockingPortal alias is deprecated:DeprecationWarning"]
+markers = [
+    "opa: requires a real OPA binary (set OPM_TEST_OPA_BINARY or put opa on PATH)",
+    "caddy: requires a real Caddy binary (set OPM_TEST_CADDY_BINARY or put caddy on PATH)",
+]

@@ -1,0 +1,97 @@
+{
+  "additionalProperties": false,
+  "description": "Automated requirements pipeline for one approved framework: retrieve\nconfigured eligible sources, review document completeness, extract with the\nlocal LLM, run a second model review per candidate plus deterministic code\nchecks, approve what passes the automation policy (decision_origin\nAUTOMATED) and publish only those requirements. Requires catalog:automate.\nThe manual review workflow is unchanged and remains available.",
+  "properties": {
+    "action": {
+      "const": "build_framework",
+      "title": "Action",
+      "type": "string"
+    },
+    "framework_id": {
+      "maxLength": 48,
+      "minLength": 1,
+      "title": "Framework Id",
+      "type": "string"
+    },
+    "version_ids": {
+      "anyOf": [
+        {
+          "items": {
+            "type": "integer"
+          },
+          "maxItems": 100,
+          "type": "array"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Version Ids"
+    },
+    "translate": {
+      "default": true,
+      "title": "Translate",
+      "type": "boolean"
+    },
+    "as_of": {
+      "anyOf": [
+        {
+          "format": "date",
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "As Of"
+    },
+    "languages": {
+      "anyOf": [
+        {
+          "items": {
+            "pattern": "^[a-z]{2,3}$",
+            "type": "string"
+          },
+          "maxItems": 10,
+          "type": "array"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Languages"
+    },
+    "screening": {
+      "anyOf": [
+        {
+          "enum": [
+            "none",
+            "pam-keyword-screen-v1"
+          ],
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Screening"
+    },
+    "request_key": {
+      "maxLength": 100,
+      "minLength": 8,
+      "title": "Request Key",
+      "type": "string"
+    }
+  },
+  "required": [
+    "action",
+    "framework_id",
+    "request_key"
+  ],
+  "title": "BuildFramework",
+  "type": "object"
+}

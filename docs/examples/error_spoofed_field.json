@@ -1,0 +1,71 @@
+{
+  "request": {
+    "method": "POST",
+    "path": "/api/v1/evaluate",
+    "headers": {
+      "Authorization": "Bearer securden-example.<redacted>",
+      "X-Correlation-ID": "securden-example-0001"
+    },
+    "body": {
+      "tenant_id": "acme",
+      "rule_id": "PAM-ROTATION-001",
+      "reporting_period": {
+        "start": "2026-10-13T00:00:00Z",
+        "end": "2026-11-12T00:00:00Z"
+      },
+      "evidence": {
+        "evidence_type": "credential_rotation",
+        "records": [
+          {
+            "record_id": "rotation-event-example-001",
+            "account_id": "acct-db-admin-01",
+            "privileged": true,
+            "last_rotated_at": "2026-08-09T00:00:00Z",
+            "last_rotation_status": "SUCCESS"
+          },
+          {
+            "record_id": "rotation-event-example-002",
+            "account_id": "acct-win-admin-07",
+            "privileged": true,
+            "last_rotated_at": "2026-10-31T00:00:00Z",
+            "last_rotation_status": "SUCCESS"
+          }
+        ],
+        "completeness": {
+          "expected_record_count": 2,
+          "received_record_count": 2,
+          "source_complete": true,
+          "collection_errors": 0
+        }
+      },
+      "policy_settings": {
+        "policy_version": "acme-pam-policy-2026.10",
+        "effective_from": "2026-10-03T00:00:00Z",
+        "parameters": {
+          "max_rotation_age_days": 90
+        }
+      },
+      "evaluated_at": "2020-01-01T00:00:00Z"
+    }
+  },
+  "response": {
+    "status": 422,
+    "body": {
+      "error": {
+        "code": "VALIDATION_ERROR",
+        "message": "Request failed schema validation.",
+        "details": [
+          {
+            "loc": [
+              "body",
+              "evaluated_at"
+            ],
+            "msg": "Extra inputs are not permitted",
+            "type": "extra_forbidden"
+          }
+        ]
+      },
+      "correlation_id": "securden-example-0001"
+    }
+  }
+}

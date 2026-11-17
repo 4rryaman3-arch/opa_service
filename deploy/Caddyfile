@@ -1,0 +1,72 @@
+# Caddy edge for the Securden OPM service.
+#
+# * TLS 1.2/1.3 only, certificate from the mounted cert dir (private CA or a
+#   publicly trusted certificate - same file names either way).
+# * mTLS: every client must present a certificate issued by client-ca.crt.
+# * Only HTTPS is exposed. No HTTP listener, no admin API, no ACME.
+# * Request body limit and server timeouts.
+#
+# All values are environment placeholders so the same file serves Docker
+# (defaults) and native/test runs (overrides).
+{
+	admin off
+	auto_https off
+	default_sni {$OPM_TLS_SERVER_NAME:opm.lan}
+	servers {
+		protocols h1 h2
+		# Clients connecting by LAN IP send no SNI, so default_sni picks the
+		# certificate and SNI != Host. Caddy's strict SNI/Host check exists to
+		# stop clients bypassing one site's client-auth policy via another
+		# site; here there is exactly one site and one TLS policy, and it
+		# requires a valid client certificate for every connection, so
+		# relaxing the check does not weaken mTLS.
+		strict_sni_host insecure_off
+		timeouts {
+			read_header 10s
+			read_body 30s
+			write 90s
+			idle 120s
+		}
+		max_header_size 16KB
+	}
+	log {
+		output stdout
+		format json
+		level INFO
+	}
+}
+
+https://:{$OPM_LISTEN_PORT:8443} {
+	tls {$OPM_CERT_DIR:/certs}/server.crt {$OPM_CERT_DIR:/certs}/server.key {
+		protocols tls1.2 tls1.3
+		client_auth {
+			mode require_and_verify
+			trust_pool file {$OPM_CERT_DIR:/certs}/client-ca.crt
+		}
+	}
+
+	request_body {
+		max_size {$OPM_MAX_BODY_SIZE:5MB}
+	}
+
+	header {
+		Strict-Transport-Security "max-age=31536000"
+		-Server
+	}
+
+	# Access log. Caddy redacts Authorization/Cookie headers by default; request
+	# bodies are never logged.
+	log
+
+	handle /api/v1/catalog/admin/* {
+		reverse_proxy {$OPM_CATALOG_ADMIN_UPSTREAM:127.0.0.1:8001}
+	}
+	handle {
+	reverse_proxy {$OPM_UPSTREAM:api:8000} {
+		transport http {
+			dial_timeout 5s
+			response_header_timeout 90s
+		}
+	}
+	}
+}

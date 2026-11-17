@@ -1,0 +1,72 @@
+{
+  "$defs": {
+    "CollectorInfo": {
+      "additionalProperties": false,
+      "properties": {
+        "name": {
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9._:@/-]{0,127}$",
+          "title": "Name",
+          "type": "string"
+        },
+        "version": {
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9._+-]{0,63}$",
+          "title": "Version",
+          "type": "string"
+        }
+      },
+      "required": [
+        "name",
+        "version"
+      ],
+      "title": "CollectorInfo",
+      "type": "object"
+    },
+    "EvidenceSupport": {
+      "additionalProperties": false,
+      "properties": {
+        "evidence_type": {
+          "pattern": "^[a-z][a-z0-9_]{1,63}$",
+          "title": "Evidence Type",
+          "type": "string"
+        },
+        "schema_version": {
+          "pattern": "^\\d{1,3}\\.\\d{1,3}$",
+          "title": "Schema Version",
+          "type": "string"
+        }
+      },
+      "required": [
+        "evidence_type",
+        "schema_version"
+      ],
+      "title": "EvidenceSupport",
+      "type": "object"
+    }
+  },
+  "additionalProperties": false,
+  "properties": {
+    "tenant_id": {
+      "pattern": "^[a-z0-9][a-z0-9-]{1,62}$",
+      "title": "Tenant Id",
+      "type": "string"
+    },
+    "collector": {
+      "$ref": "#/$defs/CollectorInfo"
+    },
+    "evidence": {
+      "items": {
+        "$ref": "#/$defs/EvidenceSupport"
+      },
+      "maxItems": 100,
+      "title": "Evidence",
+      "type": "array"
+    }
+  },
+  "required": [
+    "tenant_id",
+    "collector",
+    "evidence"
+  ],
+  "title": "CollectorCapabilitiesIn",
+  "type": "object"
+}

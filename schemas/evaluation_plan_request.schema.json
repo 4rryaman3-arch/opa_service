@@ -1,0 +1,217 @@
+{
+  "$defs": {
+    "MemberRef": {
+      "additionalProperties": false,
+      "properties": {
+        "type": {
+          "enum": [
+            "ACCOUNT",
+            "USER",
+            "RESOURCE",
+            "SESSION_POLICY",
+            "AUDIT_SOURCE"
+          ],
+          "title": "Type",
+          "type": "string"
+        },
+        "id": {
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9._:@/-]{0,127}$",
+          "title": "Id",
+          "type": "string"
+        }
+      },
+      "required": [
+        "type",
+        "id"
+      ],
+      "title": "MemberRef",
+      "type": "object"
+    },
+    "Period": {
+      "additionalProperties": false,
+      "properties": {
+        "start": {
+          "format": "date-time",
+          "title": "Start",
+          "type": "string"
+        },
+        "end": {
+          "format": "date-time",
+          "title": "End",
+          "type": "string"
+        }
+      },
+      "required": [
+        "start",
+        "end"
+      ],
+      "title": "Period",
+      "type": "object"
+    },
+    "TargetRef": {
+      "additionalProperties": false,
+      "properties": {
+        "type": {
+          "enum": [
+            "ORGANIZATION",
+            "ACCOUNT",
+            "ACCOUNT_GROUP",
+            "USER",
+            "USER_GROUP",
+            "RESOURCE",
+            "RESOURCE_GROUP",
+            "SESSION_POLICY",
+            "AUDIT_SOURCE"
+          ],
+          "title": "Type",
+          "type": "string"
+        },
+        "id": {
+          "anyOf": [
+            {
+              "pattern": "^[A-Za-z0-9][A-Za-z0-9._:@/-]{0,127}$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Id"
+        }
+      },
+      "required": [
+        "type"
+      ],
+      "title": "TargetRef",
+      "type": "object"
+    },
+    "TargetResolution": {
+      "additionalProperties": false,
+      "description": "Django-resolved membership of one group target, frozen for an interval. OPM only uses it to\ndecide whether two policy bindings overlap; it is never proof of authorization.",
+      "properties": {
+        "target": {
+          "$ref": "#/$defs/TargetRef"
+        },
+        "members": {
+          "items": {
+            "$ref": "#/$defs/MemberRef"
+          },
+          "maxItems": 10000,
+          "title": "Members",
+          "type": "array"
+        },
+        "complete": {
+          "title": "Complete",
+          "type": "boolean"
+        },
+        "valid_from": {
+          "format": "date-time",
+          "title": "Valid From",
+          "type": "string"
+        },
+        "valid_to": {
+          "anyOf": [
+            {
+              "format": "date-time",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Valid To"
+        }
+      },
+      "required": [
+        "target",
+        "members",
+        "complete",
+        "valid_from"
+      ],
+      "title": "TargetResolution",
+      "type": "object"
+    }
+  },
+  "additionalProperties": false,
+  "properties": {
+    "tenant_id": {
+      "pattern": "^[a-z0-9][a-z0-9-]{1,62}$",
+      "title": "Tenant Id",
+      "type": "string"
+    },
+    "as_of": {
+      "anyOf": [
+        {
+          "format": "date",
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "As Of"
+    },
+    "catalog_version": {
+      "anyOf": [
+        {
+          "minimum": 0,
+          "type": "integer"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Catalog Version"
+    },
+    "expected_digest": {
+      "anyOf": [
+        {
+          "pattern": "^sha256:[0-9a-f]{64}$",
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Expected Digest"
+    },
+    "policy_version_ids": {
+      "items": {
+        "pattern": "^pcv-[0-9a-f]{32}$",
+        "type": "string"
+      },
+      "maxItems": 50,
+      "title": "Policy Version Ids",
+      "type": "array"
+    },
+    "reporting_period": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/Period"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null
+    },
+    "target_resolutions": {
+      "items": {
+        "$ref": "#/$defs/TargetResolution"
+      },
+      "maxItems": 500,
+      "title": "Target Resolutions",
+      "type": "array"
+    }
+  },
+  "required": [
+    "tenant_id"
+  ],
+  "title": "PlanRequest",
+  "type": "object"
+}

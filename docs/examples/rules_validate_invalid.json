@@ -1,0 +1,88 @@
+{
+  "request": {
+    "method": "POST",
+    "path": "/api/v1/rules/validate",
+    "headers": {
+      "Authorization": "Bearer securden-example.<redacted>",
+      "X-Correlation-ID": "securden-example-0001"
+    },
+    "body": {
+      "tenant_id": "acme",
+      "rule": {
+        "rule_id": "CUST-ACME-SESSREC-001",
+        "version": "1.0",
+        "title": "Production sessions must be recorded",
+        "description": "Any privileged session on prod-tagged accounts without an AVAILABLE recording.",
+        "severity": "CRITICAL",
+        "evidence_type": "privileged_session",
+        "subject_field": "session_id",
+        "scope": {
+          "all": [
+            {
+              "field": "scope_tags",
+              "op": "contains",
+              "value": "prod"
+            }
+          ]
+        },
+        "violation_when": {
+          "all": [
+            {
+              "field": "password_hash",
+              "op": "eq",
+              "value": "x"
+            },
+            {
+              "field": "recording_required",
+              "op": "gt",
+              "value": 1
+            }
+          ]
+        },
+        "tolerance": 0,
+        "effective_from": "2026-01-01T00:00:00Z",
+        "framework_mappings": [
+          {
+            "framework": "ISO27001:2022",
+            "control": "8.15",
+            "title": "Logging"
+          }
+        ],
+        "remediation": "Investigate the recording gateway."
+      }
+    }
+  },
+  "response": {
+    "status": 200,
+    "body": {
+      "tenant_id": "acme",
+      "valid": false,
+      "activated": false,
+      "errors": [
+        {
+          "loc": [
+            "violation_when",
+            "all",
+            "0",
+            "field"
+          ],
+          "msg": "field 'password_hash' is not allowed for evidence type 'privileged_session'",
+          "type": "rule_semantic_error"
+        },
+        {
+          "loc": [
+            "violation_when",
+            "all",
+            "1",
+            "op"
+          ],
+          "msg": "operator 'gt' is not allowed for boolean field 'recording_required'",
+          "type": "rule_semantic_error"
+        }
+      ],
+      "warnings": [],
+      "definition_digest": null,
+      "compiled": null
+    }
+  }
+}

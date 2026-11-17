@@ -1,0 +1,3 @@
+# Host-side catalog management / document parsing (evaluation API needs only requirements.txt).
+-r requirements.txt
+pypdf==7.0.1
