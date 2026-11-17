@@ -616,6 +616,81 @@ The review attestations hold:
 - `executable_rules` counts global mappings plus this organization's mappings only.
 - Published mappings appear in this organization's `/evaluation-templates/{id}/plan`.
 
+### 5.3 Organization settings for automatic assignment (2026-11-17)
+
+Standards such as NIST leave most values organization-defined. The organization supplies them once through an
+**organization settings form** in Django. OPM has no separate endpoint for this: the form is a front end for
+organization policy contexts ([POLICY_CONTEXT_DJANGO_CONTRACT.md](POLICY_CONTEXT_DJANGO_CONTRACT.md) §4), which
+§5.2 reads as parameter source 2.
+
+**Form → policy controls.** Each form section maps to one or more `PC-*` controls, all at `control_version` `1.0`
+and all with `targets: [{"type": "ORGANIZATION"}]`. Controls with other targets never ground an automatic mapping.
+
+| Form section | Controls | Parameters |
+|---|---|---|
+| Passwords and accounts | PC-CRED-ROTATION, PC-DORMANT-ACCOUNTS, PC-ACCESS-REVIEW | `max_rotation_age_days`, `dormant_after_days`, `review_interval_days` |
+| Login security | PC-MFA-AT-ACCESS, PC-MFA-CONFIGURATION, PC-AUTH-FAILURE-MONITORING | `accepted_methods` (the same value sent to both MFA controls), `max_failed_attempts`, `window_minutes`, `lockout_is_mitigation` |
+| Sessions | PC-SESSION-IDLE-LIMIT, PC-SESSION-DURATION-LIMIT, PC-SESSION-RECORDING | `max_idle_minutes`, `max_session_minutes`, `accept_partial_recordings` |
+| Approvals and emergency access | PC-ACCESS-APPROVAL, PC-EMERGENCY-ACCESS | `max_approval_age_hours`, `min_justification_length`, `require_ticket_reference`, `post_review_within_hours` |
+| Policy exceptions | PC-POLICY-EXCEPTIONS | `max_exception_duration_days` |
+| Audit evidence | PC-AUDIT-LOG-COMPLETENESS | `min_completeness_percent`, `max_allowed_gap_seconds`, `require_integrity_verification` |
+
+PAM-UNAUTH-001 has no parameters and needs no field. PC-PASSWORD-POLICY and PC-SEGREGATION-OF-DUTIES are
+`NOT_IMPLEMENTED` and are not on the form.
+
+**Confirmation.**
+- Django may pre-fill the catalog defaults (`GET /policy-controls`).
+- It sends a section's controls **only after a user confirms that section**. A section that is not confirmed is
+  left out of the version, and OPM treats its parameters as missing.
+- OPM has no "confirmed" flag: a value present in an in-force version *is* the confirmation.
+- `accepted_methods`, `max_idle_minutes` and `max_session_minutes` have no default and must be typed in.
+
+**Saving.**
+- First save: `POST /admin/policy-contexts` with `policy_reference.title` "Organization PAM settings",
+  `effective_from` = now, and the confirmed sections' controls.
+- Later saves: `POST /admin/policy-contexts/{context_id}/versions` with `supersedes_version` and the **full** set of
+  confirmed controls. A version replaces the previous one; it is not a patch.
+- Keep one settings context per (organization scope, tenant). The scope header is required.
+- A 422 `INVALID_POLICY_CONTEXT` lists every problem; show each next to its field.
+
+**Re-run after a save.**
+- Django starts `prepare_catalog` again (`mode: "import"`, the same `document_ids` and `tenant_id`, a new
+  `request_key`) for each standard the organization uploaded.
+- Changed settings change the §5.2 input digest, so the affected requirements are decided again. Unchanged ones
+  reuse their decision without a model call.
+- When a setting changes, OPM **replaces** its own earlier automatic mapping for the same rule: it withdraws the old
+  mapping and publishes a new one with the new value. The decision carries `replaced_mapping_ids`.
+- When a section is removed from the settings, OPM **withdraws** the automatic mapping that relied on it. The
+  decision becomes `PARAMETER_SOURCE_MISSING` with `withdrawn_mapping_ids`.
+- Only mappings that an `llm-auto-v1` decision created for this organization with an organization-defined value
+  (`provenance=CUSTOMER_POLICY`) are replaced or withdrawn. Human, global and other-rule mappings still give
+  `POLICY_CONFLICT`.
+
+**Standard values win.**
+- A value stated in the standard's text is the mapping's parameter; the settings value is not used for it.
+- The organization may be stricter only at evaluation time, within `override_constraints` (§7), never weaker.
+  For maximums (ages, intervals, durations, attempt counts) the stated value is the upper bound. For `min_*`
+  parameters and `window_minutes` it is the lower bound.
+- Only day, hour, minute and attempt-count parameters are ever read from a standard's text. Character lengths,
+  percentages and seconds come only from settings or a verified PAM configuration.
+
+**What the UI shows per requirement** (from `llm_mapping` on `GET /frameworks/{id}/mapping-gaps`):
+
+| Outcome or gap code | Show |
+|---|---|
+| `PUBLISHABLE`, `EXISTING` | Assigned: the rule, its version, and each parameter with its source (standard text, organization settings version, or PAM configuration snapshot) |
+| `PARAMETER_SOURCE_MISSING` | "Fill in and confirm: <field>", linked to the form section |
+| `LLM_MAPPING_AMBIGUOUS` | "Needs review": the suggested rule, not assigned |
+| `NO_EXECUTABLE_RULE`, `LLM_NO_MAP`, `OUTSIDE_PAM_SCOPE` | "Not covered by PAM" |
+| `NON_OPERATIVE_TEXT`, `NOT_MANDATORY` | Hidden by default |
+| `COLLECTOR_MISSING` | "Evidence not collected yet": a Django collector task, not a setting |
+| any other code | The code and its `message`; never fail on an unknown code |
+
+**Withdrawal.** Automatic assignments carry `decision_origin=AUTOMATED_LLM`. Withdraw them like any other mapping
+(`POST /admin/mappings/{id}/withdraw`).
+
+**ISO.** ISO licences forbid AI processing of the text. Do not upload ISO standards for automatic assignment.
+
 ## 6. Read API (`catalog:read`)
 
 | Path under `/api/v1/catalog` | Content |

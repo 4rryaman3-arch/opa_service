@@ -68,6 +68,17 @@ SEMANTIC_CANDIDATES: tuple[tuple[str, str | None, tuple[str, ...]], ...] = (
 )
 PINNED_VERSIONS = {("IA-5", "f", "PAM-ROTATION-001"): "1.1"}
 
+# The unit in which a regulation states each integer parameter. Parameters missing here (character lengths,
+# percentages, seconds) are never read from prose: their value comes only from organization settings or a
+# verified PAM configuration.
+TEXT_UNITS: dict[str, str] = {
+    "max_rotation_age_days": "days", "dormant_after_days": "days", "review_interval_days": "days",
+    "max_exception_duration_days": "days", "max_approval_age_hours": "hours", "post_review_within_hours": "hours",
+    "max_idle_minutes": "minutes", "max_session_minutes": "minutes", "window_minutes": "minutes",
+    "max_failed_attempts": "attempts",
+}
+override_constraint = mr.override_constraint
+
 # Strict readings of a boolean that vendor capability text or regulatory text may ground.
 _STRICT_BOOLEANS: dict[str, tuple[bool, re.Pattern[str]]] = {
     "accept_partial_recordings": (False, re.compile(
@@ -200,10 +211,8 @@ def resolve_parameters(db: CatalogDb, *, req: dict[str, Any], rule_id: str, spec
     out = []
     for name, p in sorted(spec.parameters.items()):
         entry: dict[str, Any] = {"name": name, "value": None, "source_type": None, "reason": None}
-        if p.type in ("integer",):
-            kind = "minutes" if "minute" in name else "hours" if "hour" in name else \
-                "attempts" if "attempt" in name else "days"
-            value, why = mr.extract(kind, text, p)
+        if p.type in ("integer",) and name in TEXT_UNITS:
+            value, why = mr.extract(TEXT_UNITS[name], text, p)
             if value is not None:
                 entry.update(value=value, source_type="REGULATORY_TEXT", provenance="REGULATORY_TEXT", quotation=why)
         elif p.type == "boolean" and name in _STRICT_BOOLEANS:
@@ -340,7 +349,10 @@ def validate(db: CatalogDb, *, req: dict[str, Any], ref: dict[str, Any], proposa
     checks.append("rationale_limitations_population")
     params = {e["name"]: e["value"] for e in resolution}
     same = [m for m in existing if m["rule_id"] == rule and canonical(m["rule_parameters"] or {}) == canonical(params)]
-    others = [m["id"] for m in existing if m not in same]
+    # our own earlier automatic mapping for this rule, bound to organization values that have since changed,
+    # is replaced (§5.3); anything else (human, global, another rule) still blocks as a conflict
+    replaces = [] if same else [m["id"] for m in _customer_sourced(db, scope, req["id"], existing) if m["rule_id"] == rule]
+    others = [m["id"] for m in existing if m not in same and m["id"] not in replaces]
     if others:
         return _gap("POLICY_CONFLICT", "a different live mapping exists for this requirement; it is kept",
                     rule_id=rule, conflicting_mapping_ids=others)
@@ -369,7 +381,29 @@ def validate(db: CatalogDb, *, req: dict[str, Any], ref: dict[str, Any], proposa
     return {"outcome": "VALIDATED", "gap_code": None, "rule_id": rule, "rule_version": version,
             "evidence_type": spec.evidence_type, "parameters": params, "parameter_provenance": resolution,
             "coverage": "PARTIAL", "coverage_adjusted": proposal.coverage == "FULL",
-            "limitations": limitations, "checks": checks}
+            "limitations": limitations, "checks": checks, "replaces_mapping_ids": replaces}
+
+
+def _customer_sourced(db: CatalogDb, scope: str, rid: int, existing: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Live mappings of this organization that an earlier llm-auto decision created with at least one
+    organization-defined value (organization settings or PAM configuration)."""
+    ours = {}
+    for d in db.q("SELECT mapping_id, parameter_resolution FROM llm_mapping_decision WHERE organization_scope=? AND "
+                  "requirement_id=? AND mapping_id IS NOT NULL", (scope, rid)):
+        if any((e or {}).get("provenance") == "CUSTOMER_POLICY" for e in d["parameter_resolution"] or []):
+            ours[d["mapping_id"]] = True
+    return [m for m in existing if m["organization_scope"] == scope and m["id"] in ours]
+
+
+def _withdraw(db: CatalogDb, ids: list[int], *, actor: str, reason: str) -> list[int]:
+    done = []
+    for mid in ids:
+        try:
+            catalog.withdraw(db, "mapping", mid, actor=actor, reason=reason)
+            done.append(mid)
+        except CatalogError:
+            continue  # already withdrawn or no longer approved: nothing to replace
+    return done
 
 
 def _live_mappings(db: CatalogDb, rid: int, scope: str) -> list[dict[str, Any]]:
@@ -439,9 +473,16 @@ def assign(db: CatalogDb, engine: Any, llm: Any, requirement_ids: list[int], *, 
                        "input_digest=?", (scope, rid, input_digest))
         if prior is not None:  # idempotent re-run: same inputs, same decision, no new model call
             live = [m for m in existing if m["id"] == prior["mapping_id"]]
+            rule_id = (prior["llm_validation"] or {}).get("rule_id") or (prior["llm_proposal"] or {}).get("rule_id")
             record.update(decision_id=prior["id"], outcome="EXISTING" if live else prior["outcome"],
-                          gap_code=prior["gap_code"], mapping_id=prior["mapping_id"], reused=True,
-                          rule_id=(prior["llm_proposal"] or {}).get("rule_id"))
+                          gap_code=prior["gap_code"], mapping_id=prior["mapping_id"], reused=True, rule_id=rule_id)
+            if prior["gap_code"] == "PARAMETER_SOURCE_MISSING" and rule_id:
+                # inputs returned to an earlier "missing" state (a settings section was removed again)
+                stale = [m["id"] for m in _customer_sourced(db, scope, rid, existing) if m["rule_id"] == rule_id]
+                if stale:
+                    record["withdrawn_mapping_ids"] = _withdraw(
+                        db, stale, actor=me, reason=f"AUTOMATED_LLM ({POLICY_VERSION}): the organization-defined "
+                                                    "value it was bound to is no longer in force")
             out["decisions"].append(record)
             continue
         raw, proposal_json, result = None, None, pre
@@ -468,6 +509,14 @@ def assign(db: CatalogDb, engine: Any, llm: Any, requirement_ids: list[int], *, 
                                                     f"{str(exc)[:300]}")
             except CatalogError as exc:
                 result = _gap("VALIDATION_FAILED", f"{exc.code}: {exc.message}")
+        if result.get("gap_code") == "PARAMETER_SOURCE_MISSING" and result.get("rule_id"):
+            # the organization value an earlier automatic mapping relied on is no longer in force (a section
+            # left the settings): that mapping must not keep testing a threshold nobody defines any more
+            stale = [m["id"] for m in _customer_sourced(db, scope, rid, existing) if m["rule_id"] == result["rule_id"]]
+            if stale:
+                result["withdrawn_mapping_ids"] = _withdraw(
+                    db, stale, actor=me, reason=f"AUTOMATED_LLM ({POLICY_VERSION}): the organization-defined value "
+                                                f"it was bound to is no longer in force; {result['message'][:200]}")
         with db.tx():
             did = db.insert("llm_mapping_decision", organization_scope=scope, tenant_id=tenant, requirement_id=rid,
                             job_id=job_id, input_digest=input_digest, model=model if pre is None else None,
@@ -482,7 +531,8 @@ def assign(db: CatalogDb, engine: Any, llm: Any, requirement_ids: list[int], *, 
         record.update(decision_id=did, outcome=result["outcome"], gap_code=result.get("gap_code"),
                       message=result.get("message"), mapping_id=result.get("mapping_id"),
                       rule_id=result.get("rule_id") or (proposal_json or {}).get("rule_id"),
-                      rule_version=result.get("rule_version"), llm_called=pre is None)
+                      rule_version=result.get("rule_version"), llm_called=pre is None,
+                      **{k: result[k] for k in ("replaced_mapping_ids", "withdrawn_mapping_ids") if result.get(k)})
         if result["outcome"] == "PUBLISHABLE":
             out["mapping_ids"].append(result["mapping_id"])
         out["decisions"].append(record)
@@ -494,11 +544,16 @@ def _publishable(db: CatalogDb, engine: Any, req: dict[str, Any], ref: dict[str,
                  proposal: Proposal, v: dict[str, Any], *, scope: str, actor: str, model: str | None,
                  model_digest: str | None, input_digest: str, job_id: str | None) -> dict[str, Any]:
     """Draft and automatically review a validated proposal (separate audit records); publication follows."""
-    numeric = {e["name"]: {"min": 1, "max": e["value"]} for e in v["parameter_provenance"]
+    specs = _active(engine, v["rule_id"]).get(v["rule_version"])
+    numeric = {e["name"]: override_constraint(e["name"], e["value"], specs.parameters[e["name"]] if specs else None)
+               for e in v["parameter_provenance"]
                if e["source_type"] == "REGULATORY_TEXT" and isinstance(e["value"], int)
                and not isinstance(e["value"], bool)}
     rationale = (f"AUTOMATED_LLM ({POLICY_VERSION}, prompt {PROMPT_VERSION}, model {model}): "
                  f"{proposal.rationale.strip()} Applicable population: {proposal.applicable_population.strip()}.")
+    replaced = _withdraw(db, v.get("replaces_mapping_ids") or [], actor=actor,
+                         reason=f"AUTOMATED_LLM ({POLICY_VERSION}): replaced because the organization-defined values "
+                                f"it was bound to changed (input {input_digest[:23]})")
     mid = catalog.create_mapping(
         db, requirement_id=req["id"], assessment="AUTOMATED", rule_id=v["rule_id"], rule_version_min=v["rule_version"],
         rule_version_max=v["rule_version"], coverage="PARTIAL", parameters=v["parameters"],
@@ -516,12 +571,12 @@ def _publishable(db: CatalogDb, engine: Any, req: dict[str, Any], ref: dict[str,
               "capability_row_ids": [r["id"] for r in rows], "coverage": "PARTIAL",
               "coverage_adjusted_from_full": v["coverage_adjusted"], "limitations": v["limitations"],
               "applicable_population": proposal.applicable_population, "checks": v["checks"],
-              "organization_scope_bound": True}
+              "organization_scope_bound": True, "replaces_mapping_ids": replaced}
     catalog.review(db, "mapping", mid, reviewer=actor, decision="APPROVED",
                    comment=f"AUTOMATED_LLM approval ({POLICY_VERSION}): model proposal by {model}; deterministic "
                            f"checks passed: {', '.join(v['checks'])}.",
                    attestations=record, origin="AUTOMATED_LLM", policy_version=POLICY_VERSION)
-    return {**v, "outcome": "PUBLISHABLE", "mapping_id": mid}
+    return {**v, "outcome": "PUBLISHABLE", "mapping_id": mid, "replaced_mapping_ids": replaced}
 
 
 def counts(decisions: list[dict[str, Any]]) -> dict[str, int]:

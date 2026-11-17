@@ -124,6 +124,23 @@ _STRICT_RECORDING = re.compile(r"\brecord\w*\b[^.;]{0,80}\b(?:all|every|each)\b[
 _PARTIAL_WORDING = re.compile(r"\bpartial\w*\b", re.I)
 
 
+# Parameters where a HIGHER value is the stricter setting: minimum lengths/percentages, and the failed-attempt
+# aggregation window (a longer window counts more attempts against the same limit). Every other numeric
+# parameter is a maximum (age, interval, duration, count), where a lower value is stricter.
+HIGHER_IS_STRICTER = frozenset({"window_minutes"})
+ZERO_DISABLES = frozenset({"post_review_within_hours"})  # 0 switches the check off: never an allowed override
+
+
+def override_constraint(name: str, value: int, spec: Any) -> dict[str, int | None]:
+    """The override range a value stated by the source allows: equal or stricter, never weaker."""
+    low = getattr(spec, "minimum", None)
+    high = getattr(spec, "maximum", None)
+    if name.startswith("min_") or name in HIGHER_IS_STRICTER:
+        return {"min": value, "max": high}
+    floor = 1 if (name in ZERO_DISABLES or low is None) else max(low, 1)
+    return {"min": min(floor, value), "max": value}
+
+
 def _outside_brackets(text: str) -> str:
     return re.sub(r"\[[^\]]*\]", " ", text)
 
@@ -260,7 +277,7 @@ def resolve(db: CatalogDb, req: dict[str, Any], ref: dict[str, Any], engine: Any
         params[name] = value
         provenance.append({"name": name, "value": value, "provenance": "SOURCE_TEXT", "source_text": grounding})
         if kind in _UNITS:  # local policy may be stricter, never weaker than the stated value
-            constraints[name] = {"min": spec.parameters[name].minimum or 1, "max": value}
+            constraints[name] = override_constraint(name, value, spec.parameters[name])
     # visible mappings only: global ones, the requirement's own namespace and the caller's organization
     live = db.q("SELECT m.id, m.status, m.rule_id, m.rule_parameters FROM framework_control_mapping m "
                 "WHERE m.requirement_id=? AND m.status IN ('DRAFT','APPROVED') AND " + VISIBLE,

@@ -323,6 +323,85 @@ def test_a_value_that_differs_from_the_verifiable_source_is_rejected(prepared):
     assert env.db.scalar("SELECT COUNT(*) FROM framework_control_mapping WHERE requirement_id=?", (ids["ia5f"],)) == 0
 
 
+SETTINGS = {"tenant_id": "acme", "title": "Organization PAM settings",
+            "policy_reference": {"title": "Organization PAM settings (synthetic test fixture)"},
+            "effective_from": "2026-01-01T00:00:00.000000Z"}
+
+
+def _rotation(days):
+    return [{"control_id": "PC-CRED-ROTATION", "control_version": "1.0",
+             "parameters": {"max_rotation_age_days": days}, "targets": [{"type": "ORGANIZATION"}]}]
+
+
+def _live(env, rid):
+    return env.db.q("SELECT * FROM framework_control_mapping WHERE requirement_id=? AND status IN ('DRAFT','APPROVED')",
+                    (rid,))
+
+
+def test_organization_settings_ground_values_and_a_settings_change_reassigns(prepared):
+    """DJANGO_CONTRACT §5.3: the settings form is an organization policy context. A confirmed section's value
+    grounds an organization-defined parameter; an unconfirmed (absent) one stays PARAMETER_SOURCE_MISSING; a
+    new settings version replaces the automatic mapping instead of conflicting with it."""
+    env, ids, run, _model, _docs, _before = prepared
+    assert decisions(run("llm-map-1"))[ids["ia5f"]]["gap_code"] == "PARAMETER_SOURCE_MISSING"
+    r = env.admin.post(ADMIN + "/policy-contexts", headers=env.h(SCOPE_A),
+                       json={**SETTINGS, "request_key": "org-settings-0001", "controls": _rotation(60)})
+    assert r.status_code == 201, r.text
+    ctx, v1 = r.json()["policy_version"]["policy_context_id"], r.json()["policy_version"]["policy_version_id"]
+
+    rot = decisions(run("llm-map-2"))[ids["ia5f"]]
+    assert rot["outcome"] == "PUBLISHABLE", rot
+    [m] = _live(env, ids["ia5f"])
+    assert m["rule_parameters"] == {"max_rotation_age_days": 60} and m["organization_scope"] == SCOPE_A
+    review = env.db.one("SELECT attestations FROM review_approval WHERE entity_type='mapping' AND entity_id=?",
+                        (str(m["id"]),))
+    [prov] = review["attestations"]["parameter_provenance"]
+    assert (prov["provenance"], prov["source_type"], prov["policy_version_id"]) == ("CUSTOMER_POLICY",
+                                                                                    "POLICY_DOCUMENT", v1)
+    # the dormancy section was never confirmed (not in the policy): still an explicit gap, nothing invented
+    assert decisions(run("llm-map-2b"))[ids["ac2_3"]]["gap_code"] == "PARAMETER_SOURCE_MISSING"
+
+    r = env.admin.post(ADMIN + f"/policy-contexts/{ctx}/versions", headers=env.h(SCOPE_A),
+                       json={**SETTINGS, "request_key": "org-settings-0002", "supersedes_version": 1,
+                             "controls": _rotation(45)})
+    assert r.status_code == 201, r.text
+    rot = decisions(run("llm-map-3"))[ids["ia5f"]]
+    assert rot["outcome"] == "PUBLISHABLE", rot
+    [m2] = _live(env, ids["ia5f"])
+    assert m2["rule_parameters"] == {"max_rotation_age_days": 45} and m2["id"] != m["id"]
+    old = env.db.one("SELECT status FROM framework_control_mapping WHERE id=?", (m["id"],))
+    assert old["status"] == "WITHDRAWN"
+    gaps = env.public.get(CATALOG + f"/frameworks/{FW}/mapping-gaps", params={"tenant_id": "acme"},
+                          headers=env.h(SCOPE_A)).json()
+    item = {i["requirement_id"]: i for i in gaps["items"]}[ids["ia5f"]]
+    assert item["executable_rules"] == ["PAM-ROTATION-001"]
+    assert item["llm_mapping"]["outcome"] == "PUBLISHABLE"
+    assert rot["replaced_mapping_ids"] == [m["id"]]
+
+    # the passwords section is un-confirmed (left out of the next version): the mapping is withdrawn, not kept
+    review_only = [{"control_id": "PC-ACCESS-REVIEW", "control_version": "1.0",
+                    "parameters": {"review_interval_days": 90}, "targets": [{"type": "ORGANIZATION"}]}]
+    r = env.admin.post(ADMIN + f"/policy-contexts/{ctx}/versions", headers=env.h(SCOPE_A),
+                       json={**SETTINGS, "request_key": "org-settings-0003", "supersedes_version": 2,
+                             "controls": review_only})
+    assert r.status_code == 201, r.text
+    rot = decisions(run("llm-map-4"))[ids["ia5f"]]
+    assert rot["gap_code"] == "PARAMETER_SOURCE_MISSING" and rot["withdrawn_mapping_ids"] == [m2["id"]]
+    assert _live(env, ids["ia5f"]) == []
+
+
+def test_stated_values_constrain_overrides_in_the_stricter_direction():
+    """A value stated by the standard caps 'max_*' limits and floors 'min_*' and window parameters."""
+    spec = type("P", (), {"minimum": 1, "maximum": 2000})()
+    assert lm.override_constraint("max_rotation_age_days", 60, spec) == {"min": 1, "max": 60}
+    assert lm.override_constraint("min_justification_length", 40, spec) == {"min": 40, "max": 2000}
+    assert lm.override_constraint("window_minutes", 15, spec) == {"min": 15, "max": 2000}
+    # parameters with no reliable unit in prose are never read from the text
+    assert lm.TEXT_UNITS.get("min_justification_length") is None
+    assert lm.TEXT_UNITS.get("min_completeness_percent") is None
+    assert lm.TEXT_UNITS["max_idle_minutes"] == "minutes"
+
+
 @pytest.mark.opa
 def test_published_llm_mapping_executes_deterministically_in_opa(prepared, client):
     """The AU-14 mapping's bound parameters drive the real OPA rule: same evidence, same decision."""
