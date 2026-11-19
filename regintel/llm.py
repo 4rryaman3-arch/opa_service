@@ -136,9 +136,16 @@ class OllamaClient:
             "keep_alive": self.keep_alive,
             "options": {"temperature": 0, "seed": 0, "num_ctx": self.num_ctx, "num_predict": self.num_predict},
             "messages": [{"role": "system", "content": system},
-                         {"role": "user", "content": prompt + "\n\nReturn JSON matching this schema:\n" + json.dumps(schema)}],
+                         {"role": "user", "content": prompt + "\n\nReturn JSON matching this schema:\n"
+                          + json.dumps(schema, separators=(",", ":"))}],
         }
         data = self._call("POST", "/api/chat", json=body)
+        # Ollama silently drops the start of a prompt longer than num_ctx; the model then answers without the
+        # instructions or the input. Fail closed instead of returning that output.
+        used = int(data.get("prompt_eval_count") or 0) + int(data.get("eval_count") or 0)
+        if used >= self.num_ctx:
+            raise LlmError(f"prompt and output filled the {self.num_ctx}-token context window; the input was "
+                           "truncated. Raise OPM_REGINTEL_LLM_NUM_CTX or shorten the prompt")
         if self.require_gpu:
             status = self.gpu_status().get(self.model) or {}
             if not status.get("size_vram"):

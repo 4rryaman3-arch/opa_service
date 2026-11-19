@@ -24,7 +24,7 @@ def runtime(chat=None, *, gpu=True):
         assert body["options"]["num_ctx"] == 4096
         assert body["options"]["num_predict"] == 2048
         assert body["keep_alive"] == "5m"
-        assert json.dumps(body["format"]) in body["messages"][-1]["content"]
+        assert json.dumps(body["format"], separators=(",", ":")) in body["messages"][-1]["content"]
         return httpx.Response(200, json=chat if chat is not None else {"message": {"content": '{"ok": true}'}, "done": True})
     return httpx.MockTransport(handler)
 
@@ -35,6 +35,14 @@ def test_untagged_model_uses_canonical_name_for_gpu_check_and_preserves_digest()
         assert client.info.version == "sha256:" + "a" * 64
         assert client.generate_json("system", "prompt", {"type": "object"}) == {"ok": True}
     assert client._client.is_closed
+
+
+def test_prompt_that_fills_the_context_window_fails_closed():
+    # Ollama truncates an over-long prompt silently; the answer must not be used.
+    chat = {"message": {"content": '{"ok": true}'}, "done": True, "prompt_eval_count": 4090, "eval_count": 6}
+    with OllamaClient("http://127.0.0.1:11434", "local", transport=runtime(chat), require_gpu=True) as client:
+        with pytest.raises(LlmError, match="context window"):
+            client.generate_raw("system", "prompt", {"type": "object"})
 
 
 @pytest.mark.parametrize(("response", "message"), [

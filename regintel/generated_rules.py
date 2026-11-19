@@ -52,7 +52,8 @@ from .llm import LlmError
 
 SPEC_VERSION = "1.0"
 COMPILER_VERSION = "pam-rulespec-compiler-1.0"
-PROMPT_VERSION = "rule-spec-v1"
+# v2: compact context and schema (v1 overflowed a 4096-token window, so the model never saw the requirement)
+PROMPT_VERSION = "rule-spec-v2"
 POLICY_VERSION = "rule-gen-v1"
 FLAG_GENERATE = "REGINTEL_AUTO_RULE_GENERATION"
 FLAG_PUBLISH = "REGINTEL_AUTO_PUBLISH_GENERATED_RULES"
@@ -954,7 +955,16 @@ def _context(db: CatalogDb, req: dict[str, Any], ref: dict[str, Any], cap: dict[
                   "contains: population filters only", "spec_version 1.0; missing_evidence_result INSUFFICIENT_EVIDENCE",
                   f"source_requirement_ids: [{req['id']}]"],
     }
-    return json.dumps(payload, ensure_ascii=False, indent=1)
+    return json.dumps(payload, ensure_ascii=False, separators=(",", ":"))
+
+
+def _prompt_schema() -> dict[str, Any]:
+    """Proposal schema without 'title' keys: identical constraints, ~25% fewer prompt tokens."""
+    def strip(o: Any) -> Any:
+        if isinstance(o, dict):
+            return {k: strip(v) for k, v in o.items() if k != "title"}
+        return [strip(v) for v in o] if isinstance(o, list) else o
+    return strip(Proposal.model_json_schema())
 
 
 # ---------------------------------------------------------------- orchestration per requirement
@@ -1100,7 +1110,7 @@ def _proposal_for(db: CatalogDb, llm: Any, req: dict[str, Any], ref: dict[str, A
         if (row["llm_validation"] or {}).get("proposal_key") == proposal_key and row["raw_output"] is not None:
             return (row["raw_output"], *_parse(row["raw_output"], truncated=False), False)
     try:
-        out = llm.generate_raw(SYSTEM_RULESPEC, _context(db, req, ref, cap), Proposal.model_json_schema())
+        out = llm.generate_raw(SYSTEM_RULESPEC, _context(db, req, ref, cap), _prompt_schema())
     except LlmError as exc:
         return None, None, _gap("LLM_ERROR", str(exc)[:300]), True
     return (out.content, *_parse(out.content, truncated=bool(getattr(out, "truncated", False))), True)
