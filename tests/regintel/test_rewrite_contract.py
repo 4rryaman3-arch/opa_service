@@ -92,7 +92,14 @@ def env(tmp_path, monkeypatch):
 def test_handshake_scope_binding_and_validation(env):
     health = env.admin.get(ADMIN + "/health", headers=env.h()).json()
     assert health["rewrite_contract_version"] == "1.0"
-    assert health["capabilities"] == {"prepare_catalog_v1": True, "scoped_imports_v1": True, "scoped_catalog_v1": True}
+    assert health["capabilities"] == {
+        "prepare_catalog_v1": True,
+        "scoped_imports_v1": True,
+        "scoped_catalog_v1": True,
+        "bounded_rule_generation_v1": True,
+    }
+    assert health["rule_generation"]["supported"] is True
+    assert health["rule_generation"]["compiler_version"] == "pam-rulespec-compiler-1.0"
     # a malformed scope header is rejected, a short one too
     bad = env.admin.post(ADMIN + "/jobs", headers=env.h("short"), json={
         "action": "prepare_catalog", "mode": "discovery", "jurisdictions": ["EU"], "request_key": "rw-key-bad"})

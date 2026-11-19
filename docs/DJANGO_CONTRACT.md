@@ -49,18 +49,30 @@ uploads are safe to repeat, because of `request_key`.
 
 `GET /api/v1/catalog/admin/health`:
 
+The response advertises `capabilities.bounded_rule_generation_v1` and a
+`rule_generation` object. Django must require both
+`auto_rule_generation=true` and `auto_publish_validated_rules=true` before it
+offers fully automatic PAM-check assignment. Evaluation-plan executions for
+generated rules include `generated_rule.required_fields`; collectors must
+confirm that every listed field is supported before submitting evidence.
+
 ```json
 {"status": "ok", "key_id": "securden-pam",
  "scopes": ["catalog:automate", "catalog:operate", "catalog:publish", "catalog:read", "catalog:review"],
  "policy_bundle_version": "2026.11.12-1",
  "automation": {"scope": "catalog:automate", "policy_version": "auto-v3", "enabled": true},
  "rewrite_contract_version": "1.0",
- "capabilities": {"prepare_catalog_v1": true, "scoped_imports_v1": true, "scoped_catalog_v1": true},
+ "capabilities": {"prepare_catalog_v1": true, "scoped_imports_v1": true,
+                  "scoped_catalog_v1": true, "bounded_rule_generation_v1": true},
+ "rule_generation": {"supported": true, "auto_rule_generation": true,
+                     "auto_publish_validated_rules": true,
+                     "compiler_version": "pam-rulespec-compiler-1.0", "spec_version": "1.0"},
  "schema_version": "1.0", "catalog_version": 12}
 ```
 
-Show the automated triggers only when `automation.enabled` is true. Enable the rewrite UI only when all three
-capabilities are true, since they are false without `catalog:automate`. Compare `policy_bundle_version` with
+Show the automated triggers only when `automation.enabled` is true. Enable the rewrite UI only when all four
+capabilities and both rule-generation flags are true, since the capabilities are false without
+`catalog:automate`. Compare `policy_bundle_version` with
 `GET /api/v1/version` to confirm both processes run one bundle.
 
 ## 3. Organization scope (rewrite contract 1.0)
@@ -694,7 +706,7 @@ Render unknown codes with their `message`.
   active generated rules.
 - Plans (`/evaluation-templates/{id}/plan?tenant_id=`, POST plan) list generated executions with
   `rule_source: "GENERATED"` and `generated_rule{rule_origin, generated_rule_version_id, spec_digest, rule_digest,
-  rego_digest, compiler_version, evidence_type, evidence_schema_version, assessment_mode,
+  rego_digest, compiler_version, evidence_type, evidence_schema_version, assessment_mode, required_fields,
   collector_capability_digest, status, source_references, limitations}`. Evaluate them like any custom rule:
   `POST /evaluate` with the same `tenant_id`, `rule_id`, `rule_version` "1.0" and the declared evidence type.
 - `GET /admin/rule-catalog` (with the scope header) adds this organization's generated rules. Every item has

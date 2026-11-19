@@ -854,10 +854,18 @@ class EngineView:
 
 
 def provenance(row: dict[str, Any]) -> dict[str, Any]:
+    try:
+        spec = RuleSpec.model_validate(row["rule_spec"])
+        required_fields = sorted(_fields(spec))
+    except (KeyError, TypeError, ValidationError):
+        # Historical rows can predate RuleSpec provenance. They remain readable,
+        # but callers must treat the missing field contract as unsupported.
+        required_fields = []
     return {"rule_origin": "GENERATED", "generated_rule_version_id": row["id"], "spec_digest": row["spec_digest"],
             "rule_digest": row["rule_digest"], "rego_digest": row["rego_digest"],
             "compiler_version": row["compiler_version"], "evidence_type": row["evidence_type"],
             "evidence_schema_version": row["evidence_schema_version"], "assessment_mode": row["assessment_mode"],
+            "required_fields": required_fields,
             "collector_capability_digest": row["collector_digest"], "status": row["status"],
             "source_references": row["source_references"], "limitations": row["rule_limitations"]}
 

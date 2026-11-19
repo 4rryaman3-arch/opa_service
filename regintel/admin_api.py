@@ -20,7 +20,7 @@ from app.errors import (ServiceError, http_error_handler, service_error_handler,
 from app.metrics import Metrics
 from app.middleware import ServiceMiddleware
 from app.security import ApiKeyStore, Principal, TokenBucketLimiter, authenticate, authorize_tenant, require_scope
-from . import SCHEMA_VERSION, automation, catalog, coverage, discovery, mapping_policy, orgscope, registry
+from . import SCHEMA_VERSION, automation, catalog, coverage, discovery, generated_rules, mapping_policy, orgscope, registry
 from . import plan as planning
 from . import policy_contexts as pctx
 from . import progress as progress_mod
@@ -329,7 +329,14 @@ def create_admin_app(settings: Settings | None = None, *, start_worker=True):
                         # Django-rewrite handshake (contract 1.0). The scoped workflow runs under
                         # catalog:automate, so the capabilities are advertised with that permission.
                         rewrite_contract_version=orgscope.REWRITE_CONTRACT_VERSION,
-                        capabilities={name: (enabled and value) for name, value in orgscope.CAPABILITIES.items()})
+                        capabilities={name: (enabled and value) for name, value in orgscope.CAPABILITIES.items()},
+                        rule_generation={
+                            'supported': True,
+                            'auto_rule_generation': generated_rules.generation_enabled(),
+                            'auto_publish_validated_rules': generated_rules.publish_enabled(),
+                            'compiler_version': generated_rules.COMPILER_VERSION,
+                            'spec_version': generated_rules.SPEC_VERSION,
+                        })
 
     @app.get(PREFIX+'/sources')
     def source_list(db=Depends(database), _: Principal = Depends(admin_reader)):

@@ -276,6 +276,7 @@ def test_generated_rules_are_validated_tested_activated_and_gaps_stay_explicit(g
     assert plan.status_code == 200, plan.text
     gen_exec = [e for e in plan.json()["executions"] if e["rule_id"] == t["rule_id"]]
     assert gen_exec and gen_exec[0]["generated_rule"]["rule_origin"] == "GENERATED"
+    assert gen_exec[0]["generated_rule"]["required_fields"]
     assert gen_exec[0]["rule_source"] == "GENERATED"
     gaps_b = env.public.get(CATALOG + f"/frameworks/{FW}/mapping-gaps", headers=env.h(SCOPE_B)).json()
     assert all("rule_generation" not in i and not any(r.startswith("PAM-GEN-") for r in i["executable_rules"])

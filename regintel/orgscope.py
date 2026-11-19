@@ -28,7 +28,12 @@ from .db import CatalogDb, now_iso
 
 HEADER = "X-Securden-Organization-Scope"
 REWRITE_CONTRACT_VERSION = "1.0"
-CAPABILITIES = {"prepare_catalog_v1": True, "scoped_imports_v1": True, "scoped_catalog_v1": True}
+CAPABILITIES = {
+    "prepare_catalog_v1": True,
+    "scoped_imports_v1": True,
+    "scoped_catalog_v1": True,
+    "bounded_rule_generation_v1": True,
+}
 _SCOPE_RE = re.compile(r"^[A-Za-z0-9_-]{16,128}$")
 
 

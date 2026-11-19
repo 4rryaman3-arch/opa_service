@@ -340,8 +340,15 @@ def build_plan(db: CatalogDb, fw: dict[str, Any], when: str, engine: Any, *, ten
                                             "control_reference", "rule_id", "rule_version_min", "rule_version_max",
                                             "execution_id")} for m in r["mappings"]],
         } for r in out_requirements],
-        "executions": [{k: e[k] for k in ("execution_id", "rule_id", "rule_version", "evidence_type", "parameters",
-                                          "override_constraints", "parameter_schema")} for e in plan_executions],
+        "executions": [{
+            **{k: e[k] for k in ("execution_id", "rule_id", "rule_version", "evidence_type", "parameters",
+                                 "override_constraints", "parameter_schema")},
+            **({"generated_rule": {k: e["generated_rule"][k] for k in (
+                "generated_rule_version_id", "spec_digest", "rule_digest", "rego_digest", "compiler_version",
+                "evidence_type", "evidence_schema_version", "assessment_mode", "required_fields",
+                "collector_capability_digest", "status")}}
+               if e.get("generated_rule") else {}),
+        } for e in plan_executions],
     }
     return {
         "framework": {
