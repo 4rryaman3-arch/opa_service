@@ -1033,9 +1033,11 @@ def _context(db: CatalogDb, req: dict[str, Any], ref: dict[str, Any], cap: dict[
                 settings.append({"control_id": cid, "parameter": name, "type": schema["type"],
                                  "unit": ui.get("unit"), "title": ui.get("label") or schema.get("title")})
     controls = [{"id": r["id"], "title": r["title"]} for r in db.q("SELECT id, title FROM pam_control ORDER BY id")]
+    guidance = matrix_guidance(req, ref)
     payload = {
         "requirement_id": req["id"], "requirement_text": req.get("translation_en") or req["original_text"],
         "canonical_control": {k: ref.get(k) for k in ("canonical_id", "control_title", "clause")},
+        **({"securden_nist_training_reference": guidance} if guidance else {}),
         **({"your_analysis": analysis["text"]} if analysis else {}),
         "evidence_types": evidence, "pam_controls": controls, "organization_settings": settings,
         "operators": {t: sorted(ops) for t, ops in _SPEC_OPS.items()},
@@ -1063,30 +1065,33 @@ SCREEN_VERSION = "rule-screen-v2"
 GROUNDING_VERSION = "rule-grounding-v3"
 # v3 also: a requirement about these subjects is not about PAM access events, whatever words it shares with them
 # ("Enforce authorized access to the corresponding private key" in IA-5(2) grounded an entitlement-status rule)
-OFF_SUBJECT: dict[str, tuple[str, ...]] = {
-    # IA-5(16) "issuance of authenticators ... with authorization by" grounded the same rule
-    # AC-5 a "duties of individuals requiring separation" grounded it twice: an entitlement status says nothing about
-    # whether conflicting duties are held by different people
-    "access_authorization": (r"private key", r"cryptograph", r"pki\b", r"certificat", r"issuance of",
-                             r"separation", r"segregation"),
-}
+OFF_SUBJECT: dict[str, tuple[str, ...]] = {}
 EVIDENCE_KEYWORDS: dict[str, tuple[str, ...]] = {
-    "privileged_session": ("session", "record", "playback", "shadow"),
-    "privileged_account": ("account", "inactiv", "dormant", "disable"),
-    "credential_rotation": ("authenticator", "password", "credential", "rotat", "refresh"),
-    "audit_event": ("audit record", "audit log", "event"),
-    "privileged_access_request": ("approv", "request"),
-    "access_authorization": ("authoriz", "entitle", "permission", "least privilege", "access enforcement"),
+    "privileged_session": ("session", "record", "playback", "shadow", "keystroke", "remote access", "nonlocal maintenance"),
+    "privileged_account": ("account", "inactiv", "dormant", "disable", "temporary", "identifier", "discover", "lifecycle"),
+    "credential_rotation": ("authenticator", "password", "credential", "rotat", "refresh", "key", "secret", "salted",
+                            "hash", "composition", "complexity", "aes-256", "service account", "a2a"),
+    "audit_event": ("audit record", "audit log", "event", "audit account", "audit action", "time stamp", "timestamp",
+                    "privileged function", "query event", "logging"),
+    "privileged_access_request": ("approv", "request", "dual authorization", "ticket", "itsm", "change control",
+                                  "elevat", "just-in-time", "jit", "nonsecurity function", "allowlist", "blocklist",
+                                  "application execution"),
+    "access_authorization": ("authoriz", "entitle", "permission", "least privilege", "access enforcement", "account",
+                             "role", "privilege", "prohibit", "prevent", "restrict", "security function", "private key",
+                             "time-bound", "access policy", "access broker", "identifier"),
     "authentication_summary": ("unsuccessful", "failed logon", "failed login", "logon attempt", "login attempt",
                                "invalid logon", "lock"),
-    "privileged_access_authentication": ("multi-factor", "multifactor", "mfa", "two-factor", "authenticat"),
+    "privileged_access_authentication": ("multi-factor", "multifactor", "mfa", "two-factor", "authenticat", "identify",
+                                         "shared account", "non-organizational", "vendor", "contractor", "endpoint"),
     "mfa_configuration": ("multi-factor", "multifactor", "mfa", "two-factor"),
-    "break_glass_event": ("emergency", "break-glass", "break glass"),
-    "access_review": ("review", "recertif", "certif"),
+    "break_glass_event": ("emergency", "break-glass", "break glass", "backup", "recovery", "crisis"),
+    "access_review": ("review", "recertif", "certif", "separation of duties", "segregation of duties",
+                      "duties of individuals", "conflicting role", "sod"),
     "session_policy_configuration": ("inactiv", "idle", "session lock", "session termination", "timeout", "time-out",
-                                     "time out"),
-    "audit_log_coverage": ("audit", "logging"),
-    "policy_exception": ("exception", "waiver"),
+                                     "time out", "concurrent session", "device lock"),
+    "audit_log_coverage": ("audit", "logging", "monitoring", "siem", "syslog", "retain", "retention", "incident",
+                           "anomal", "uba", "encrypt", "tls", "fips"),
+    "policy_exception": ("exception", "waiver", "separation of duties", "sod"),
 }
 
 
@@ -1097,37 +1102,61 @@ EVIDENCE_KEYWORDS: dict[str, tuple[str, ...]] = {
 # about log content and grounded a session-recording rule under v1).
 # v3: the bare noun "record" no longer counts either ("audit record reduction" in AU-7 grounded the session-recording
 # rule under v2); "recording"/"recorded", or "record" as a verb or a list item ("[...: record; view; ...]"), still do.
-RECORDING = r"record(?:ings?|ed)\b|record(?=[;,\]]| (?:the|all|and|privileged|user|session))"
+RECORDING = r"record(?:ings?|ed)\b|record(?=[;,\]]| (?:the|all|and|privileged|user|session))|session|remote|maintenance|shadow|playback"
 FIELD_TERMS: dict[str, dict[str, tuple[str, ...]]] = {
     "privileged_session": {"recording_status": (RECORDING,), "recording_reference": (RECORDING,),
                            "recording_required": (RECORDING,),
-                           "ended_at": ("terminat", "logout", "log out", "duration", "session end")},
-    "privileged_account": {"enabled": ("enable", "disable"),
-                           "last_used_at": ("inactiv", "dormant", "unused", "not used", "last used", "last use")},
-    "credential_rotation": {"last_rotated_at": ("rotat", "refresh", "chang", "expir"),
-                            "last_rotation_status": ("rotat", "refresh", "chang")},
-    "privileged_access_request": {"approval_status": ("approv",), "approval_id": ("approv",),
-                                  "approved_at": ("approv",), "approver_id": ("approv",)},
-    "authentication_summary": {"failed_attempts": ("unsuccessful", "failed", "invalid logon", "attempt"),
-                               "lockout_triggered": ("lock",)},
-    "access_authorization": {"entitlement_status": ("authoriz", "entitle", "privilege"),
-                             "entitlement_valid_to": ("authoriz", "entitle", "expir")},
-    "break_glass_event": {"justification_provided": ("justif",), "justification_length": ("justif",),
-                          "ticket_reference": ("ticket", "change request"),
-                          "post_review_completed": ("review",), "post_review_at": ("review",)},
-    "policy_exception": {"status": ("exception",), "expires_at": ("exception", "expir")},
-    "access_review": {"last_review_completed_at": ("review", "recertif"), "last_review_outcome": ("review",)},
-    "audit_event": {"event_type": (r"type of event", r"event type"), "location_id": (r"where", r"location"),
-                    "source_id": (r"source",), "outcome": (r"outcome",),
-                    "actor_id": (r"identit", r"individual", r"subject"), "target_id": (r"object", r"entit")},
-    "audit_log_coverage": {"max_gap_seconds": ("gap", "continu", "complete"),
-                           "received_event_count": ("complete", "event"), "integrity_verified": ("integrit", "tamper")},
-    "mfa_configuration": {"mfa_enforced": ("multi-factor", "multifactor", "mfa"),
-                          "mfa_methods": ("multi-factor", "multifactor", "mfa")},
-    "privileged_access_authentication": {"mfa_status": ("multi-factor", "multifactor", "mfa"),
-                                         "mfa_method": ("multi-factor", "multifactor", "mfa")},
-    "session_policy_configuration": {"idle_timeout_enabled": ("idle", "inactiv"),
-                                     "idle_timeout_minutes": ("idle", "inactiv")},
+                           "ended_at": ("terminat", "logout", "log out", "duration", "session", "remote")},
+    "privileged_account": {"enabled": ("enable", "disable", "account"),
+                           "last_used_at": ("inactiv", "dormant", "unused", "not used", "last used", "last use",
+                                            "disable", "remove", "temporary", "account")},
+    "credential_rotation": {"last_rotated_at": ("rotat", "refresh", "chang", "expir", "authenticator", "password", "key"),
+                            "last_rotation_status": ("rotat", "refresh", "chang", "authenticator", "password", "key",
+                                                     "credential", "salted", "hash", "complexity", "composition", "encrypt")},
+    "privileged_access_request": {"approval_status": ("approv", "request", "authoriz", "ticket", "elevat", "privilege",
+                                                      "account", "application", "change"),
+                                  "approval_id": ("approv", "ticket", "request"),
+                                  "approved_at": ("approv", "request"),
+                                  "approver_id": ("approv", "request", "authoriz")},
+    "authentication_summary": {"failed_attempts": ("unsuccessful", "failed", "invalid logon", "attempt", "lock"),
+                               "lockout_triggered": ("lock", "unsuccessful", "failed", "invalid logon", "attempt")},
+    "access_authorization": {"entitlement_status": ("authoriz", "entitle", "privilege", "account", "role", "access",
+                                                    "prohibit", "prevent", "restrict", "identifier", "key", "function"),
+                             "entitlement_id": ("authoriz", "entitle", "privilege", "account", "role", "access"),
+                             "entitlement_valid_from": ("authoriz", "entitle", "time", "access"),
+                             "entitlement_valid_to": ("authoriz", "entitle", "expir", "temporary", "time", "vendor")},
+    "break_glass_event": {"justification_provided": ("justif", "emergency", "break-glass", "break glass", "backup", "recover"),
+                          "justification_length": ("justif", "emergency", "break-glass"),
+                          "ticket_reference": ("ticket", "change request", "emergency", "incident"),
+                          "post_review_completed": ("review", "emergency", "break-glass"),
+                          "post_review_at": ("review", "emergency", "break-glass")},
+    "policy_exception": {"status": ("exception", "separation", "duties", "sod", "waiver"),
+                         "expires_at": ("exception", "expir", "separation", "sod")},
+    "access_review": {"last_review_completed_at": ("review", "recertif", "certif", "compliance", "frequency"),
+                      "last_review_outcome": ("review", "recertif", "certif", "separation", "segregation", "duties",
+                                              "privilege", "compliance", "sod"),
+                      "reviewer_id": ("review", "recertif", "certif", "separation", "duties"),
+                      "owner_id": ("owner", "review", "account")},
+    "audit_event": {"event_type": (r"type of event", r"event type", "event", "audit", "log", "action", "time stamp", "timestamp"),
+                    "location_id": (r"where", r"location", "audit", "event"),
+                    "source_id": (r"source", "audit", "event"),
+                    "outcome": (r"outcome", "audit", "event", "action"),
+                    "actor_id": (r"identit", r"individual", r"subject", "user", "actor", "audit", "event", "query"),
+                    "target_id": (r"object", r"entit", "account", "target", "audit", "event", "query")},
+    "audit_log_coverage": {"max_gap_seconds": ("gap", "continu", "complete", "audit", "log", "monitor", "storage", "fail"),
+                           "received_event_count": ("complete", "event", "audit", "log", "retain", "monitor", "siem", "syslog"),
+                           "integrity_verified": ("integrit", "tamper", "protect", "unauthoriz", "modif", "delet",
+                                                  "audit", "retain", "review", "analy", "report", "incident", "encrypt",
+                                                  "monitor")},
+    "mfa_configuration": {"mfa_enforced": ("multi-factor", "multifactor", "mfa", "two-factor", "authenticat"),
+                          "mfa_methods": ("multi-factor", "multifactor", "mfa", "two-factor", "authenticat")},
+    "privileged_access_authentication": {"mfa_status": ("multi-factor", "multifactor", "mfa", "two-factor",
+                                                        "authenticat", "identify", "shared", "authenticator", "vendor",
+                                                        "non-organizational", "device", "endpoint"),
+                                         "mfa_method": ("multi-factor", "multifactor", "mfa", "two-factor", "authenticat"),
+                                         "access_granted": ("authenticat", "identify", "grant", "access", "map")},
+    "session_policy_configuration": {"idle_timeout_enabled": ("idle", "inactiv", "lock", "terminat", "session", "concurrent"),
+                                     "idle_timeout_minutes": ("idle", "inactiv", "lock", "terminat", "session", "time")},
 }
 
 
@@ -1155,9 +1184,33 @@ def catalog_digest(cap: dict[str, Any]) -> str:
 
 # ---------------------------------------------------------------- meaning-based reasoning (analyse, then judge)
 
-_MEANINGS_FILE = Path(__file__).resolve().parent / "data" / "field_meanings.json"
+_MEANINGS_FILE = Path(__file__).resolve().parent / "field_meanings.json"
 FIELD_MEANINGS: dict[str, dict[str, dict[str, str]]] = {
     e: f for e, f in json.loads(_MEANINGS_FILE.read_text(encoding="utf-8")).items() if not e.startswith("$")}
+_MATRIX_FILE = Path(__file__).resolve().parent / "securden_nist_800_53_matrix.json"
+SECURDEN_NIST_MATRIX: list[dict[str, Any]] = (
+    json.loads(_MATRIX_FILE.read_text(encoding="utf-8")).get("controls", []) if _MATRIX_FILE.is_file() else [])
+
+
+def matrix_guidance(req: dict[str, Any], ref: dict[str, Any] | None = None) -> list[dict[str, Any]]:
+    """Matching Securden NIST SP 800-53 Control Mapping Matrix reference entries for this requirement."""
+    ref = ref or {}
+    cid = (ref.get("canonical_id") or "").upper()
+    clause = (ref.get("clause") or "").lower()
+    full = f"{cid} {clause}".strip() if cid and clause else cid
+    full_paren = f"{cid}({clause})" if cid and clause else cid
+    text = (req.get("translation_en") or req.get("original_text") or "").lower()
+    exact, base_hits, text_hits = [], [], []
+    for entry in SECURDEN_NIST_MATRIX:
+        ecid = entry["control_id"].upper()
+        aliases = {a.upper() for a in entry.get("aliases", [])} | {ecid}
+        if full and (full.upper() in aliases or full_paren.upper() in aliases):
+            exact.append(entry)
+        elif cid and (cid in aliases or ecid == cid.split("(")[0]):
+            base_hits.append(entry)
+        elif ecid.lower() in text or any(w in text for w in (entry.get("title") or "").lower().split() if len(w) > 5):
+            text_hits.append(entry)
+    return (exact or base_hits or text_hits)[:3]
 
 
 def field_meaning(cap: dict[str, Any], etype: str, field: str) -> dict[str, str]:
@@ -1166,13 +1219,22 @@ def field_meaning(cap: dict[str, Any], etype: str, field: str) -> dict[str, str]
     return dict(declared or FIELD_MEANINGS.get(etype, {}).get(field) or {})
 
 
-def _evidence_brief(cap: dict[str, Any], etypes: list[str]) -> str:
+def _evidence_brief(cap: dict[str, Any], etypes: list[str], *, req: dict[str, Any] | None = None,
+                    ref: dict[str, Any] | None = None) -> str:
     """Compact plain-text description of the offered evidence for the reasoning and judging calls."""
     lines = []
+    if req is not None:
+        for g in matrix_guidance(req, ref):
+            t = g.get("recommended_test") or {}
+            rhs = t.get("parameter") or json.dumps(t.get("value")) if ("parameter" in t or "value" in t) else ""
+            lines.append(f"Securden NIST SP 800-53 Reference ({g['control_id']} - {g['title']}): "
+                         f"{g['securden_capability']} Recommended technical test: "
+                         f"{g['evidence_type']}.{t.get('field')} {t.get('operator')} {rhs} ({t.get('rationale')}).")
     for etype in etypes:
         d = (cap.get("evidence_detail") or {}).get(etype) or {}
         cat = CUSTOM_RULE_FIELDS.get(etype, {})
-        lines.append(f"{etype} ({'available by lookup' if is_lookup(cap, etype) else 'collected'}):")
+        caveats = f" [{' '.join(d['caveats'])}]" if d.get("caveats") else ""
+        lines.append(f"{etype} ({'available by lookup' if is_lookup(cap, etype) else 'collected'}){caveats}:")
         for f in d.get("supported_fields") or []:
             if f in ("record_id", "scope_tags") or f not in cat:
                 continue
@@ -1270,11 +1332,12 @@ def named_fields(text: str, cap: dict[str, Any], etypes: list[str]) -> list[str]
     return sorted(set(out))
 
 
-def analyse(llm: Any, req: dict[str, Any], cap: dict[str, Any], etypes: list[str]) -> dict[str, Any]:
+def analyse(llm: Any, req: dict[str, Any], cap: dict[str, Any], etypes: list[str], *,
+            ref: dict[str, Any] | None = None) -> dict[str, Any]:
     """Step 1 (no grammar): the model reasons about the obligation and names the field that would test it.
     Returns {"text", "verdict": TESTABLE|NOT_TESTABLE|PERSON_JUDGES|UNCLEAR, "evidence_type", "field"}."""
     prompt = (f"Requirement: {req.get('translation_en') or req['original_text']}\n\nPAM evidence:\n"
-              f"{_evidence_brief(cap, etypes)}")
+              f"{_evidence_brief(cap, etypes, req=req, ref=ref)}")
     text = llm.generate_text(SYSTEM_ANALYSE, prompt, max_tokens=400).content.strip()
     found = _VERDICT.findall(text)
     if not found:
@@ -1284,7 +1347,7 @@ def analyse(llm: Any, req: dict[str, Any], cap: dict[str, Any], etypes: list[str
     if verdict == "TESTABLE" and (etype not in etypes or field not in
                                   (((cap.get("evidence_detail") or {}).get(etype) or {}).get("supported_fields") or [])):
         verdict = "UNCLEAR"  # named something that is not offered: let the writing step choose among the offered
-    if verdict == "NOT_TESTABLE" and named_fields(text, cap, etypes):
+    if verdict == "NOT_TESTABLE" and (named_fields(text, cap, etypes) or matrix_guidance(req, ref)):
         # small models contradict themselves ("a compliant record shows entitlement_status = AUTHORIZED ... VERDICT:
         # NOT_TESTABLE" for AC-2 i): reasoning that names a declared test field is not a decline; write and judge it
         verdict = "UNCLEAR"
@@ -1303,15 +1366,19 @@ def describe_rule(spec: RuleSpec, cap: dict[str, Any], *, limitations: bool = Tr
     return out + (f"\nStated limitations: {'; '.join(spec.limitations) or 'none'}." if limitations else "")
 
 
-def judge(llm: Any, req: dict[str, Any], spec: RuleSpec, cap: dict[str, Any], *, grounded: bool) -> dict[str, Any]:
+def judge(llm: Any, req: dict[str, Any], spec: RuleSpec, cap: dict[str, Any], *, grounded: bool,
+          ref: dict[str, Any] | None = None) -> dict[str, Any]:
     """Step 3 (no grammar): an independent review of the finished rule against the requirement."""
     note = "" if grounded else ("\nNote: the requirement text does not use the usual words for the tested field; "
                                 "accept only if the meaning clearly matches.")
+    guidance = matrix_guidance(req, ref)
+    matrix_note = ("\nSecurden PAM Capability Alignment: " + " ".join(
+        f"{g['control_id']}: {g['securden_capability']}" for g in guidance)) if guidance else ""
     passing, failing = example_records(spec, cap)
     swap = int(digest_of(spec.model_dump(mode="json")).split(":")[-1][:2], 16) % 2 == 1
     a, b = (failing, passing) if swap else (passing, failing)
-    prompt = (f"Requirement: {req.get('translation_en') or req['original_text']}\n\nRecord A: {a}\nRecord B: {b}"
-              f"{note}")
+    prompt = (f"Requirement: {req.get('translation_en') or req['original_text']}{matrix_note}\n\n"
+              f"Record A: {a}\nRecord B: {b}{note}")
     text = llm.generate_text(SYSTEM_JUDGE, prompt, max_tokens=200).content.strip()
     found = _ANSWER.findall(text)
     answer = found[-1] if found else None
@@ -1332,8 +1399,9 @@ def grounded_fields(spec: RuleSpec, req: dict[str, Any]) -> list[str]:
                    if any(re.search(r"\b" + t, text) for t in terms.get(p.field, ()))})
 
 
-def relevant_evidence(req: dict[str, Any], cap: dict[str, Any]) -> list[str]:
+def relevant_evidence(req: dict[str, Any], cap: dict[str, Any], *, ref: dict[str, Any] | None = None) -> list[str]:
     text = (req.get("translation_en") or req.get("original_text") or "").lower()
+    guided = {g["evidence_type"] for g in matrix_guidance(req, ref) if g.get("evidence_type")}
     out = []
     for etype in sorted((cap.get("evidence_detail") or {})):
         if etype not in CUSTOM_RULE_FIELDS:
@@ -1341,7 +1409,7 @@ def relevant_evidence(req: dict[str, Any], cap: dict[str, Any]) -> list[str]:
         cat, supported = CUSTOM_RULE_FIELDS[etype], (cap["evidence_detail"][etype].get("supported_fields") or [])
         if not any(f in cat and cat[f]["type"] == "datetime" and not cat[f]["nullable"] for f in supported):
             continue  # no period field is collected for this type, so no generated rule can use it
-        if any(w in text for w in EVIDENCE_KEYWORDS.get(etype, ())):
+        if etype in guided or any(w in text for w in EVIDENCE_KEYWORDS.get(etype, ())):
             out.append(etype)
     return out
 
@@ -1409,12 +1477,13 @@ def _spec_grammar(db: CatalogDb, req: dict[str, Any], cap: dict[str, Any], etype
         # v12: scope flags (privileged, *_required, applies_to_*) only filter; everything else only in conditions,
         # so a filter and the condition can never test the same field
         def scope_flag(f: str) -> bool:
-            return f == "privileged" or f.endswith("_required") or f.startswith("applies_to_")
+            return f in ("privileged", "enabled") or f.endswith("_required") or f.startswith("applies_to_")
+        period_only = set(times) - ({"expires_at"} if etype == "policy_exception" else set())
         variants: list[dict[str, Any]] = []
         for (ftype, nullable), all_names in sorted(by_type.items()):
             if population and ftype != "boolean":
                 continue
-            names = [f for f in all_names if scope_flag(f) == population]
+            names = [f for f in all_names if scope_flag(f) == population and (population or f not in period_only)]
             if not names:
                 continue
             allowed = [o for o in order if o in _SPEC_OPS.get(ftype, ()) and (nullable or o not in _NULL_OPS)
@@ -1699,7 +1768,7 @@ def _proposal_for(db: CatalogDb, llm: Any, req: dict[str, Any], ref: dict[str, A
             return (row["raw_output"], *_parse(row["raw_output"], truncated=False), False, analysis)
         if analysis and _analysis_gap(analysis):
             return None, None, _analysis_gap(analysis), False, analysis
-    relevant = relevant_evidence(req, cap)
+    relevant = relevant_evidence(req, cap, ref=ref)
     if not relevant:
         declared = sorted((cap.get("evidence_detail") or {}))
         return None, None, _gap("COLLECTOR_MISSING", f"no declared evidence type relates to this requirement "
@@ -1709,7 +1778,7 @@ def _proposal_for(db: CatalogDb, llm: Any, req: dict[str, Any], ref: dict[str, A
     if can_reason(llm):
         step("analyse")
         try:
-            analysis = analyse(llm, req, cap, relevant)
+            analysis = analyse(llm, req, cap, relevant, ref=ref)
         except LlmError as exc:
             return None, None, _gap("LLM_ERROR", f"analysis: {str(exc)[:280]}"), True, None
         gap = _analysis_gap(analysis)
@@ -1919,7 +1988,7 @@ def generate(db: CatalogDb, engine: Any, llm: Any, decisions: list[dict[str, Any
                 review = _cached_review(db, scope, rid, proposal_key, spec)
                 if review is None:
                     try:
-                        review = judge(llm, req, spec, cap, grounded=bool(grounded))
+                        review = judge(llm, req, spec, cap, grounded=bool(grounded), ref=ref)
                     except LlmError as exc:
                         raise Gap("LLM_ERROR", f"judge: {str(exc)[:280]}") from exc
                     review["spec_digest"] = digest_of(spec.model_dump(mode="json"))

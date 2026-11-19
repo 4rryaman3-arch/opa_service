@@ -1,0 +1,832 @@
+{
+  "$comment": "Securden NIST SP 800-53 Rev. 5 Control Mapping Matrix (all 53 NIST SP 800-53 controls and sub-controls mapped to Securden PAM capabilities, Django models, and RuleSpec conditions).",
+  "controls": [
+    {
+      "control_id": "AC-1",
+      "title": "Policy and Procedures",
+      "requirement_summary": "Establish and maintain access control policies and procedures enforced across privileged accounts and credentials.",
+      "securden_capability": "Securden PAM acts as the central access broker implementing the organization's privileged-access policy across accounts, approvals, credential use, and session management.",
+      "pam_models": ["accountmanagement.AccountUsers", "accountmanagement.AccountPolicyMap", "audit.AccountActivity"],
+      "evidence_type": "access_authorization",
+      "pam_control_id": "PAMC-ACCESS-AUTHORIZATION",
+      "recommended_test": {
+        "field": "entitlement_status",
+        "operator": "equals",
+        "value": "AUTHORIZED",
+        "rationale": "Every privileged account access event is enforced against active RBAC access policies."
+      }
+    },
+    {
+      "control_id": "AC-2",
+      "title": "Account Management (a, d, f)",
+      "requirement_summary": "Define allowed account types, specify authorized users, group/role memberships, and access privileges, and create, enable, modify, disable, and remove accounts in accordance with policy.",
+      "securden_capability": "Securden discovers and manages local, domain, service, and SSH key accounts, enforcing role-based account ownership and authorized access entitlements.",
+      "pam_models": ["accountmanagement.Accounts", "accountmanagement.AccountUsers", "accountmanagement.AccountGroups", "accountmanagement.FolderAccountUsers"],
+      "evidence_type": "access_authorization",
+      "pam_control_id": "PAMC-ACCESS-AUTHORIZATION",
+      "recommended_test": {
+        "field": "entitlement_status",
+        "operator": "equals",
+        "value": "AUTHORIZED",
+        "rationale": "Every privileged access must be backed by an authorized user/group/role entitlement."
+      }
+    },
+    {
+      "control_id": "AC-2(e)",
+      "aliases": ["AC-2 e", "AC-2 c"],
+      "title": "Account Management - Require Approvals",
+      "requirement_summary": "Require approvals by designated personnel or roles for requests to create or access privileged accounts.",
+      "securden_capability": "Request-release approval workflows and ITSM ticket validation require explicit administrator approval before granting privileged account access.",
+      "pam_models": ["accountmanagement.AccountAdminPrivilegeRequest", "accountmanagement.TechnicianAccessRequest"],
+      "evidence_type": "privileged_access_request",
+      "pam_control_id": "PAMC-ACCESS-APPROVAL",
+      "recommended_test": {
+        "population_filter": {"field": "approval_required", "operator": "equals", "value": true},
+        "field": "approval_status",
+        "operator": "equals",
+        "value": "APPROVED",
+        "rationale": "Every privileged access requiring approval has an APPROVED workflow decision."
+      }
+    },
+    {
+      "control_id": "AC-2(i)",
+      "aliases": ["AC-2 i"],
+      "title": "Account Management - Valid Access Authorization",
+      "requirement_summary": "Authorize access to the system based on a valid access authorization and intended system usage.",
+      "securden_capability": "Securden enforces granular account, folder, and role-based entitlements so only authorized users can initiate sessions or check out credentials.",
+      "pam_models": ["accountmanagement.AccountUsers", "accountmanagement.FolderAccountUsers", "audit.AccountActivity"],
+      "evidence_type": "access_authorization",
+      "pam_control_id": "PAMC-ACCESS-AUTHORIZATION",
+      "recommended_test": {
+        "field": "entitlement_status",
+        "operator": "equals",
+        "value": "AUTHORIZED",
+        "rationale": "Each privileged access event has entitlement_status = AUTHORIZED."
+      }
+    },
+    {
+      "control_id": "AC-2(j)",
+      "aliases": ["AC-2 j"],
+      "title": "Account Management - Periodic Account Review",
+      "requirement_summary": "Review accounts for compliance with account management requirements at an organization-defined frequency.",
+      "securden_capability": "Securden IGA runs periodic access certification campaigns where reviewers certify or revoke privileged account entitlements.",
+      "pam_models": ["iga.CertificationCampaign", "iga.CertificationItem", "iga.CertificationReviewTask"],
+      "evidence_type": "access_review",
+      "pam_control_id": "PAMC-ACCESS-REVIEW",
+      "recommended_test": {
+        "population_filter": {"field": "privileged", "operator": "equals", "value": true},
+        "field": "last_review_completed_at",
+        "operator": "within_last_days",
+        "parameter": "review_interval_days",
+        "rationale": "Each privileged account completed an access certification review within review_interval_days."
+      }
+    },
+    {
+      "control_id": "AC-2(1)",
+      "title": "Automated System Account Management",
+      "requirement_summary": "Support the management of system accounts using automated mechanisms.",
+      "securden_capability": "Securden automates account discovery, onboarding, lifecycle management, and access authorization enforcement.",
+      "pam_models": ["accountmanagement.Accounts", "discovery.DiscoverySchedule", "accountmanagement.AccountUsers"],
+      "evidence_type": "access_authorization",
+      "pam_control_id": "PAMC-ACCESS-AUTHORIZATION",
+      "recommended_test": {
+        "field": "entitlement_status",
+        "operator": "equals",
+        "value": "AUTHORIZED",
+        "rationale": "Automated account management enforces authorized entitlement status on every access."
+      }
+    },
+    {
+      "control_id": "AC-2(2)",
+      "title": "Automated Temporary and Emergency Account Management",
+      "requirement_summary": "Automatically remove or disable temporary and emergency accounts after an organization-defined time period.",
+      "securden_capability": "Securden enforces time-bound JIT access windows and automatic expiration of temporary and emergency account access.",
+      "pam_models": ["accountmanagement.AccountUsers", "usermanagement.EmergencyAccessConfiguration", "accountmanagement.AccountAdminPrivilegeRequest"],
+      "evidence_type": "privileged_account",
+      "pam_control_id": "PAMC-DORMANT-ACCOUNTS",
+      "recommended_test": {
+        "population_filter": {"field": "enabled", "operator": "equals", "value": true},
+        "field": "last_used_at",
+        "operator": "within_last_days",
+        "parameter": "dormant_after_days",
+        "rationale": "Enabled accounts must be actively used within the configured cutoff period."
+      }
+    },
+    {
+      "control_id": "AC-2(3)",
+      "title": "Disable Accounts",
+      "requirement_summary": "Disable accounts within an organization-defined time period when accounts have been inactive or expired.",
+      "securden_capability": "Securden tracks account last_accessed_at timestamps and flags or disables dormant privileged accounts.",
+      "pam_models": ["accountmanagement.Accounts", "accountmanagement.AccountPolicyMap"],
+      "evidence_type": "privileged_account",
+      "pam_control_id": "PAMC-DORMANT-ACCOUNTS",
+      "recommended_test": {
+        "population_filter": {"field": "enabled", "operator": "equals", "value": true},
+        "field": "last_used_at",
+        "operator": "within_last_days",
+        "parameter": "dormant_after_days",
+        "rationale": "No enabled privileged account remains unused beyond dormant_after_days."
+      }
+    },
+    {
+      "control_id": "AC-2(4)",
+      "title": "Automated Audit Actions",
+      "requirement_summary": "Automatically audit account creation, modification, enabling, disabling, and removal actions.",
+      "securden_capability": "Securden automatically records structured audit events for all account lifecycle actions with event_type, actor_id, target_id, and outcome.",
+      "pam_models": ["audit.UserActivity", "audit.AccountActivity", "audit.ActivityTypes"],
+      "evidence_type": "audit_event",
+      "pam_control_id": "PAMC-AUDIT-LOG-COMPLETENESS",
+      "recommended_test": {
+        "field": "event_type",
+        "operator": "exists",
+        "rationale": "Every account lifecycle audit record captures the event_type of the action."
+      }
+    },
+    {
+      "control_id": "AC-2(7)",
+      "title": "Privileged User Accounts",
+      "requirement_summary": "Establish and administer privileged user accounts in accordance with a role-based access scheme and monitor privileged role assignments.",
+      "securden_capability": "Securden administers privileged accounts under role-based access control (CustomRole, AccountUsers, FolderAccountUsers) and verifies entitlement authorization.",
+      "pam_models": ["usermanagement.CustomRole", "accountmanagement.AccountUsers", "accountmanagement.FolderAccountUsers"],
+      "evidence_type": "access_authorization",
+      "pam_control_id": "PAMC-ACCESS-AUTHORIZATION",
+      "recommended_test": {
+        "field": "entitlement_status",
+        "operator": "equals",
+        "value": "AUTHORIZED",
+        "rationale": "Every privileged account access is governed by an active role-based entitlement."
+      }
+    },
+    {
+      "control_id": "AC-2(13)",
+      "title": "Disable Accounts for High-Risk Individuals",
+      "requirement_summary": "Disable accounts of individuals within an organization-defined time period of discovery of significant risks.",
+      "securden_capability": "Securden disables accounts and revokes entitlements upon risk detection or certification revocation.",
+      "pam_models": ["accountmanagement.Accounts", "iga.CertificationItem"],
+      "evidence_type": "privileged_account",
+      "pam_control_id": "PAMC-DORMANT-ACCOUNTS",
+      "recommended_test": {
+        "population_filter": {"field": "enabled", "operator": "equals", "value": true},
+        "field": "last_used_at",
+        "operator": "within_last_days",
+        "parameter": "dormant_after_days",
+        "rationale": "Enabled accounts must remain within the organization's active usage threshold."
+      }
+    },
+    {
+      "control_id": "AC-3",
+      "title": "Access Enforcement",
+      "requirement_summary": "Enforce approved authorizations for logical access to information and system resources in accordance with applicable access control policies.",
+      "securden_capability": "Securden enforces RBAC, time-bound access windows, and request-release approvals before permitting credential access or remote sessions.",
+      "pam_models": ["accountmanagement.AccountUsers", "accountmanagement.FolderAccountUsers", "audit.AccountActivity"],
+      "evidence_type": "access_authorization",
+      "pam_control_id": "PAMC-ACCESS-AUTHORIZATION",
+      "recommended_test": {
+        "field": "entitlement_status",
+        "operator": "equals",
+        "value": "AUTHORIZED",
+        "rationale": "Access is permitted only when entitlement_status is AUTHORIZED."
+      }
+    },
+    {
+      "control_id": "AC-3(2)",
+      "title": "Dual Authorization",
+      "requirement_summary": "Enforce dual authorization for privileged commands and access to privileged accounts.",
+      "securden_capability": "Multi-level approval workflows require independent approver authorization before releasing privileged credentials or elevating privileges.",
+      "pam_models": ["accountmanagement.AccountAdminPrivilegeRequest", "accountmanagement.TechnicianAccessRequest"],
+      "evidence_type": "privileged_access_request",
+      "pam_control_id": "PAMC-ACCESS-APPROVAL",
+      "recommended_test": {
+        "population_filter": {"field": "approval_required", "operator": "equals", "value": true},
+        "field": "approval_status",
+        "operator": "equals",
+        "value": "APPROVED",
+        "rationale": "Privileged access requiring approval must have approval_status = APPROVED."
+      }
+    },
+    {
+      "control_id": "AC-4",
+      "title": "Information Flow Enforcement",
+      "requirement_summary": "Enforce approved authorizations for controlling the flow of information within the system and across interconnected boundaries.",
+      "securden_capability": "Securden brokers all remote privileged connections through controlled gateways and enforces authorized session pathways.",
+      "pam_models": ["pam.GatewayServer", "audit.AccountActiveRemoteSession", "accountmanagement.AccountUsers"],
+      "evidence_type": "access_authorization",
+      "pam_control_id": "PAMC-ACCESS-AUTHORIZATION",
+      "recommended_test": {
+        "field": "entitlement_status",
+        "operator": "equals",
+        "value": "AUTHORIZED",
+        "rationale": "Every brokered access flow is authorized by an active entitlement."
+      }
+    },
+    {
+      "control_id": "AC-5",
+      "title": "Separation of Duties",
+      "requirement_summary": "Identify and document duties of individuals requiring separation and define system access authorizations to support separation of duties.",
+      "securden_capability": "Securden IGA enforces Separation of Duties (SoD) policies across roles and entitlements, periodically reviews access for SoD violations, and tracks time-bound exceptions.",
+      "pam_models": ["iga.SODPolicy", "iga.SODRule", "iga.SODViolation", "iga.SODException", "iga.CertificationItem"],
+      "evidence_type": "access_review",
+      "pam_control_id": "PAMC-ACCESS-REVIEW",
+      "recommended_test": {
+        "population_filter": {"field": "privileged", "operator": "equals", "value": true},
+        "field": "last_review_outcome",
+        "operator": "equals",
+        "value": "CERTIFIED",
+        "rationale": "Privileged accounts are reviewed for Separation of Duties compliance and certified."
+      }
+    },
+    {
+      "control_id": "AC-6",
+      "title": "Least Privilege",
+      "requirement_summary": "Employ the principle of least privilege, allowing only authorized accesses for users which are necessary to accomplish assigned organizational tasks.",
+      "securden_capability": "Securden enforces least privilege through granular role-based account permissions, JIT privilege elevation, and endpoint application control.",
+      "pam_models": ["accountmanagement.AccountUsers", "accountmanagement.AccountAdminPrivilegeRequest", "configuration.ApplicationPolicy"],
+      "evidence_type": "access_authorization",
+      "pam_control_id": "PAMC-ACCESS-AUTHORIZATION",
+      "recommended_test": {
+        "field": "entitlement_status",
+        "operator": "equals",
+        "value": "AUTHORIZED",
+        "rationale": "Every privileged access event is backed by an active least-privilege entitlement."
+      }
+    },
+    {
+      "control_id": "AC-6(1)",
+      "title": "Authorize Access to Security Functions",
+      "requirement_summary": "Authorize access for defined individuals or roles to security functions and security-relevant information.",
+      "securden_capability": "Securden restricts security functions and privileged accounts to authorized roles and requires workflow approval for elevation.",
+      "pam_models": ["accountmanagement.AccountUsers", "usermanagement.CustomRole", "accountmanagement.AccountAdminPrivilegeRequest"],
+      "evidence_type": "access_authorization",
+      "pam_control_id": "PAMC-ACCESS-AUTHORIZATION",
+      "recommended_test": {
+        "field": "entitlement_status",
+        "operator": "equals",
+        "value": "AUTHORIZED",
+        "rationale": "Access to privileged security functions is restricted to AUTHORIZED entitlements."
+      }
+    },
+    {
+      "control_id": "AC-6(2)",
+      "title": "Non-Privileged Access for Nonsecurity Functions",
+      "requirement_summary": "Require that users of system accounts with access to security functions or privileges use non-privileged accounts or roles when accessing nonsecurity functions.",
+      "securden_capability": "Securden elevates task/application privileges Just-in-Time (JIT) with approval workflows so users operate under standard accounts otherwise.",
+      "pam_models": ["accountmanagement.AccountAdminPrivilegeRequest", "accountmanagement.PrivilegeRequestApplication"],
+      "evidence_type": "privileged_access_request",
+      "pam_control_id": "PAMC-ACCESS-APPROVAL",
+      "recommended_test": {
+        "population_filter": {"field": "approval_required", "operator": "equals", "value": true},
+        "field": "approval_status",
+        "operator": "equals",
+        "value": "APPROVED",
+        "rationale": "Privileged elevation requests are explicitly approved before execution."
+      }
+    },
+    {
+      "control_id": "AC-6(3)",
+      "title": "Network Access to Privileged Commands",
+      "requirement_summary": "Authorize network access to privileged commands only for compelling operational needs and document the rationale.",
+      "securden_capability": "Securden brokers remote network access to privileged commands only under authorized entitlements and approved requests with recorded justification.",
+      "pam_models": ["accountmanagement.AccountUsers", "accountmanagement.AccountAdminPrivilegeRequest", "audit.AccountActiveRemoteSession"],
+      "evidence_type": "access_authorization",
+      "pam_control_id": "PAMC-ACCESS-AUTHORIZATION",
+      "recommended_test": {
+        "field": "entitlement_status",
+        "operator": "equals",
+        "value": "AUTHORIZED",
+        "rationale": "Network access to privileged accounts/commands requires an AUTHORIZED entitlement."
+      }
+    },
+    {
+      "control_id": "AC-6(5)",
+      "title": "Privileged Accounts",
+      "requirement_summary": "Restrict privileged accounts on the system to organization-defined personnel or roles.",
+      "securden_capability": "Securden restricts privileged accounts to explicitly assigned users, groups, and custom roles.",
+      "pam_models": ["accountmanagement.AccountUsers", "accountmanagement.AccountGroups", "usermanagement.CustomRole"],
+      "evidence_type": "access_authorization",
+      "pam_control_id": "PAMC-ACCESS-AUTHORIZATION",
+      "recommended_test": {
+        "field": "entitlement_status",
+        "operator": "equals",
+        "value": "AUTHORIZED",
+        "rationale": "Privileged accounts are accessed only by personnel holding an AUTHORIZED entitlement."
+      }
+    },
+    {
+      "control_id": "AC-6(7)",
+      "title": "Review of User Privileges",
+      "requirement_summary": "Review the privileges assigned to roles or classes of users at an organization-defined frequency to validate the need for such privileges.",
+      "securden_capability": "Securden IGA certification campaigns periodically review and certify or revoke assigned user privileges.",
+      "pam_models": ["iga.CertificationCampaign", "iga.CertificationItem"],
+      "evidence_type": "access_review",
+      "pam_control_id": "PAMC-ACCESS-REVIEW",
+      "recommended_test": {
+        "population_filter": {"field": "privileged", "operator": "equals", "value": true},
+        "field": "last_review_outcome",
+        "operator": "equals",
+        "value": "CERTIFIED",
+        "rationale": "Assigned privileged access has been reviewed and CERTIFIED."
+      }
+    },
+    {
+      "control_id": "AC-6(8)",
+      "aliases": ["AC-6(8)"],
+      "title": "Privilege Levels for Code Execution / Non-Organizational Users",
+      "requirement_summary": "Prohibit privileged access to the system by non-organizational users unless explicitly authorized.",
+      "securden_capability": "Securden enforces explicit time-bound authorization for any third-party or vendor privileged access.",
+      "pam_models": ["accountmanagement.AccountUsers", "vendorapp.VendorAccess"],
+      "evidence_type": "access_authorization",
+      "pam_control_id": "PAMC-ACCESS-AUTHORIZATION",
+      "recommended_test": {
+        "field": "entitlement_status",
+        "operator": "equals",
+        "value": "AUTHORIZED",
+        "rationale": "Any privileged access must hold an AUTHORIZED entitlement."
+      }
+    },
+    {
+      "control_id": "AC-6(9)",
+      "title": "Log Use of Privileged Functions",
+      "requirement_summary": "Log the execution of privileged functions.",
+      "securden_capability": "Securden logs all privileged account checkouts, sessions, and application elevations in AccountActivity and UserActivity.",
+      "pam_models": ["audit.AccountActivity", "audit.UserActivity"],
+      "evidence_type": "audit_event",
+      "pam_control_id": "PAMC-AUDIT-LOG-COMPLETENESS",
+      "recommended_test": {
+        "field": "event_type",
+        "operator": "exists",
+        "rationale": "Every privileged function execution is logged with an event_type."
+      }
+    },
+    {
+      "control_id": "AC-6(10)",
+      "title": "Prohibit Non-Privileged Users from Executing Privileged Functions",
+      "requirement_summary": "Prevent non-privileged users from executing privileged functions.",
+      "securden_capability": "Securden blocks unauthorized users from accessing privileged accounts or launching administrative functions without an active entitlement.",
+      "pam_models": ["accountmanagement.AccountUsers", "configuration.ApplicationPolicy"],
+      "evidence_type": "access_authorization",
+      "pam_control_id": "PAMC-ACCESS-AUTHORIZATION",
+      "recommended_test": {
+        "field": "entitlement_status",
+        "operator": "equals",
+        "value": "AUTHORIZED",
+        "rationale": "Privileged functions are executed only when entitlement_status is AUTHORIZED."
+      }
+    },
+    {
+      "control_id": "AC-7",
+      "aliases": ["AC-7 a", "AC-7 b", "AC-7(2)"],
+      "title": "Unsuccessful Logon Attempts",
+      "requirement_summary": "Enforce a limit of consecutive invalid logon attempts by a user during a specified time period and automatically lock the account when the maximum number is exceeded.",
+      "securden_capability": "Securden tracks consecutive failed login attempts in UserProfileAddInfo and automatically triggers account lockout when the threshold is reached.",
+      "pam_models": ["usermanagement.UserProfileAddInfo", "audit.UserActivity"],
+      "evidence_type": "authentication_summary",
+      "pam_control_id": "PAMC-AUTH-FAILURE-MONITORING",
+      "recommended_test": {
+        "field": "failed_attempts",
+        "operator": "less_than_or_equal",
+        "parameter": "max_failed_attempts",
+        "rationale": "Consecutive failed logon attempts per principal do not exceed max_failed_attempts."
+      }
+    },
+    {
+      "control_id": "AC-10",
+      "title": "Concurrent Session Control",
+      "requirement_summary": "Limit the number of concurrent sessions for each account to an organization-defined number.",
+      "securden_capability": "Securden enforces session policies and tracks active remote sessions per user and account.",
+      "pam_models": ["audit.AccountActiveRemoteSession", "pam.Configurations"],
+      "evidence_type": "session_policy_configuration",
+      "pam_control_id": "PAMC-SESSION-LIMITS",
+      "recommended_test": {
+        "population_filter": {"field": "applies_to_privileged", "operator": "equals", "value": true},
+        "field": "idle_timeout_enabled",
+        "operator": "equals",
+        "value": true,
+        "rationale": "Privileged session policy governance is active and enforced."
+      }
+    },
+    {
+      "control_id": "AC-11",
+      "aliases": ["AC-11 a"],
+      "title": "Device Lock / Session Lock",
+      "requirement_summary": "Prevent further access to the system by initiating a session lock after an organization-defined time period of inactivity.",
+      "securden_capability": "Securden automatically locks and terminates idle interactive web and remote sessions after the configured inactivity timeout.",
+      "pam_models": ["pam.Configurations", "pam.WebSessionServerSettings"],
+      "evidence_type": "session_policy_configuration",
+      "pam_control_id": "PAMC-SESSION-LIMITS",
+      "recommended_test": {
+        "population_filter": {"field": "applies_to_privileged", "operator": "equals", "value": true},
+        "field": "idle_timeout_minutes",
+        "operator": "less_than_or_equal",
+        "parameter": "max_idle_minutes",
+        "rationale": "Privileged session idle timeout is configured to at most max_idle_minutes."
+      }
+    },
+    {
+      "control_id": "AC-12",
+      "title": "Session Termination",
+      "requirement_summary": "Automatically terminate a user session after defined conditions or inactivity timeouts trigger session termination.",
+      "securden_capability": "Securden terminates idle or expired remote sessions automatically and records session ended_at timestamps.",
+      "pam_models": ["audit.AccountActiveRemoteSession", "pam.Configurations"],
+      "evidence_type": "session_policy_configuration",
+      "pam_control_id": "PAMC-SESSION-LIMITS",
+      "recommended_test": {
+        "population_filter": {"field": "applies_to_privileged", "operator": "equals", "value": true},
+        "field": "idle_timeout_enabled",
+        "operator": "equals",
+        "value": true,
+        "rationale": "Automatic session termination upon inactivity is enabled for privileged sessions."
+      }
+    },
+    {
+      "control_id": "AC-17",
+      "aliases": ["AC-17(1)", "AC-17(2)", "AC-17(3)", "AC-17(4)"],
+      "title": "Remote Access",
+      "requirement_summary": "Monitor and control remote access methods, route remote access through managed access control points, and authorize execution of privileged commands via remote access.",
+      "securden_capability": "Securden brokers all remote privileged sessions through controlled gateways with MFA authentication, RBAC authorization, live session shadowing, and full session recording.",
+      "pam_models": ["audit.AccountActiveRemoteSession", "audit.RecordedSessionActivity", "audit.AccountActiveRemoteSessionShadowControl", "pam.GatewayServer"],
+      "evidence_type": "privileged_session",
+      "pam_control_id": "PAMC-SESSION-RECORDING",
+      "recommended_test": {
+        "population_filter": {"field": "recording_required", "operator": "equals", "value": true},
+        "field": "recording_status",
+        "operator": "equals",
+        "value": "AVAILABLE",
+        "rationale": "Every remote privileged session requiring recording has an AVAILABLE session recording."
+      }
+    },
+    {
+      "control_id": "AU-2",
+      "aliases": ["AU-2 a"],
+      "title": "Event Logging",
+      "requirement_summary": "Identify the types of events that the system is capable of logging in support of the audit function across privileged accounts, checkouts, and sessions.",
+      "securden_capability": "Securden logs all security-relevant events across password views, checkouts, application elevations, authentication attempts, approvals, and remote sessions.",
+      "pam_models": ["audit.UserActivity", "audit.AccountActivity", "audit.ActivityTypes"],
+      "evidence_type": "audit_event",
+      "pam_control_id": "PAMC-AUDIT-LOG-COMPLETENESS",
+      "recommended_test": {
+        "field": "event_type",
+        "operator": "exists",
+        "rationale": "Each recorded audit event carries a classified event_type identifier."
+      }
+    },
+    {
+      "control_id": "AU-3",
+      "aliases": ["AU-3(1)"],
+      "title": "Content of Audit Records",
+      "requirement_summary": "Ensure that audit records contain information that establishes what type of event occurred, when it occurred, where it occurred, the source, the outcome, and the identity of individuals or objects associated with the event.",
+      "securden_capability": "Securden captures complete metadata on every audit event: event_type, occurred_at (UTC), location_id, source_id (client IP), outcome, actor_id (user), and target_id (account/asset).",
+      "pam_models": ["audit.UserActivity", "audit.AccountActivity"],
+      "evidence_type": "audit_event",
+      "pam_control_id": "PAMC-AUDIT-LOG-COMPLETENESS",
+      "recommended_test": {
+        "field": "actor_id",
+        "operator": "exists",
+        "rationale": "Audit records capture the required AU-3 content elements including actor_id, event_type, location_id, source_id, outcome, and target_id."
+      }
+    },
+    {
+      "control_id": "AU-4",
+      "title": "Audit Log Storage Capacity",
+      "requirement_summary": "Allocate audit log storage capacity and retain all expected audit events without loss.",
+      "securden_capability": "Securden retains comprehensive audit trails in dedicated database tables with automated backups and SIEM/Syslog streaming.",
+      "pam_models": ["audit.UserActivity", "audit.AccountActivity", "pam.LiveDBBackupStatus"],
+      "evidence_type": "audit_log_coverage",
+      "pam_control_id": "PAMC-AUDIT-LOG-COMPLETENESS",
+      "recommended_test": {
+        "field": "max_gap_seconds",
+        "operator": "less_than_or_equal",
+        "parameter": "max_allowed_gap_seconds",
+        "rationale": "Audit log collection operates continuously without gaps exceeding max_allowed_gap_seconds."
+      }
+    },
+    {
+      "control_id": "AU-5",
+      "title": "Response to Audit Logging Process Failures",
+      "requirement_summary": "Alert personnel in the event of an audit logging process failure and monitor logging continuity.",
+      "securden_capability": "Securden monitors audit logging health and email/syslog event tasks to ensure continuous capture.",
+      "pam_models": ["audit.UserActivity", "audit.EmailEventTask", "pam.SyslogConfig"],
+      "evidence_type": "audit_log_coverage",
+      "pam_control_id": "PAMC-AUDIT-LOG-COMPLETENESS",
+      "recommended_test": {
+        "field": "max_gap_seconds",
+        "operator": "less_than_or_equal",
+        "parameter": "max_allowed_gap_seconds",
+        "rationale": "Audit logging shows no outage gap exceeding max_allowed_gap_seconds."
+      }
+    },
+    {
+      "control_id": "AU-6",
+      "aliases": ["AU-6 a", "AU-6(3)"],
+      "title": "Audit Record Review, Analysis, and Reporting",
+      "requirement_summary": "Review and analyze system audit records for indications of inappropriate or unusual activity and report findings.",
+      "securden_capability": "Securden provides customizable compliance reports, UBA anomaly detection, and real-time SIEM/Syslog streaming.",
+      "pam_models": ["audit.UserActivity", "audit.AccountActivity", "pam.SyslogConfig"],
+      "evidence_type": "audit_log_coverage",
+      "pam_control_id": "PAMC-AUDIT-LOG-COMPLETENESS",
+      "recommended_test": {
+        "field": "integrity_verified",
+        "operator": "equals",
+        "value": true,
+        "rationale": "Audit log sources are complete and integrity-verified for review and reporting."
+      }
+    },
+    {
+      "control_id": "AU-7",
+      "title": "Audit Record Reduction and Report Generation",
+      "requirement_summary": "Provide and implement an audit record reduction and report generation capability that supports on-demand audit record review and reporting without altering original content or time ordering.",
+      "securden_capability": "Securden provides filterable audit trails and compliance report generation preserving original event timestamps and integrity.",
+      "pam_models": ["audit.UserActivity", "audit.AccountActivity"],
+      "evidence_type": "audit_log_coverage",
+      "pam_control_id": "PAMC-AUDIT-LOG-COMPLETENESS",
+      "recommended_test": {
+        "field": "integrity_verified",
+        "operator": "equals",
+        "value": true,
+        "rationale": "Original audit records remain intact and integrity-verified during report generation."
+      }
+    },
+    {
+      "control_id": "AU-8",
+      "title": "Time Stamps",
+      "requirement_summary": "Use internal system clocks to generate time stamps for audit records expressed in UTC.",
+      "securden_capability": "Securden records synchronized UTC-normalized timestamps on all UserActivity, AccountActivity, and session records.",
+      "pam_models": ["audit.UserActivity", "audit.AccountActivity"],
+      "evidence_type": "audit_event",
+      "pam_control_id": "PAMC-AUDIT-LOG-COMPLETENESS",
+      "recommended_test": {
+        "field": "event_type",
+        "operator": "exists",
+        "rationale": "Every UTC-timestamped audit record in the period is structured with an event_type."
+      }
+    },
+    {
+      "control_id": "AU-9",
+      "aliases": ["AU-9 a", "AU-9 b", "AU-9(4)", "AU-9(6)"],
+      "title": "Protection of Audit Information",
+      "requirement_summary": "Protect audit information and audit logging tools from unauthorized access, modification, and deletion, alert on unauthorized access, and restrict audit management to a defined subset of privileged users.",
+      "securden_capability": "Securden enforces tamper-evident read-only audit tables, RBAC restrictions on audit management, and remote Syslog/SIEM forwarding.",
+      "pam_models": ["audit.UserActivity", "audit.AccountActivity", "usermanagement.CustomRolePermissions", "pam.SyslogConfig"],
+      "evidence_type": "audit_log_coverage",
+      "pam_control_id": "PAMC-AUDIT-LOG-COMPLETENESS",
+      "recommended_test": {
+        "field": "integrity_verified",
+        "operator": "equals",
+        "value": true,
+        "rationale": "Audit log coverage passes integrity_verified = true confirming protection against tampering."
+      }
+    },
+    {
+      "control_id": "AU-11",
+      "title": "Audit Record Retention",
+      "requirement_summary": "Retain audit records for an organization-defined time period consistent with records retention policy to provide support for after-the-fact investigations.",
+      "securden_capability": "Securden retains complete audit logs and recorded session trails across the reporting window with automated archive/backup support.",
+      "pam_models": ["audit.UserActivity", "audit.AccountActivity", "audit.RecordedSessionActivity"],
+      "evidence_type": "audit_log_coverage",
+      "pam_control_id": "PAMC-AUDIT-LOG-COMPLETENESS",
+      "recommended_test": {
+        "field": "integrity_verified",
+        "operator": "equals",
+        "value": true,
+        "rationale": "Retained audit log coverage over the reporting period is complete and integrity-verified."
+      }
+    },
+    {
+      "control_id": "AU-12",
+      "aliases": ["AU-12(4)"],
+      "title": "Audit Record Generation",
+      "requirement_summary": "Provide audit record generation capability for the event types the system is capable of auditing and audit parameters of user query/action events.",
+      "securden_capability": "Securden generates real-time structured audit records for all user and account activities including actor_id, target_id, event_type, and outcome.",
+      "pam_models": ["audit.UserActivity", "audit.AccountActivity"],
+      "evidence_type": "audit_event",
+      "pam_control_id": "PAMC-AUDIT-LOG-COMPLETENESS",
+      "recommended_test": {
+        "field": "actor_id",
+        "operator": "exists",
+        "rationale": "Generated audit records capture the actor_id and event details for every audited action."
+      }
+    },
+    {
+      "control_id": "AU-14",
+      "aliases": ["AU-14 a"],
+      "title": "Session Audit",
+      "requirement_summary": "Provide and implement the capability to record, view, hear, and log the content of a user session.",
+      "securden_capability": "Securden records full video playbacks of RDP/VNC/Web sessions and text/keystroke logs of SSH/Telnet sessions, bound to individual user identities.",
+      "pam_models": ["audit.AccountActiveRemoteSession", "audit.RecordedSessionActivity"],
+      "evidence_type": "privileged_session",
+      "pam_control_id": "PAMC-SESSION-RECORDING",
+      "recommended_test": {
+        "population_filter": {"field": "recording_required", "operator": "equals", "value": true},
+        "field": "recording_status",
+        "operator": "equals",
+        "value": "AVAILABLE",
+        "rationale": "Every privileged session requiring recording has an AVAILABLE session recording."
+      }
+    },
+    {
+      "control_id": "CM-3",
+      "title": "Configuration Change Control",
+      "requirement_summary": "Validate and approve configuration-controlled changes to the system before implementation.",
+      "securden_capability": "Securden integrates with ITSM platforms (ServiceNow, Jira, ServiceDesk Plus, BMC Helix) to validate change/ticket IDs and approval status before granting privileged access.",
+      "pam_models": ["accountmanagement.TicketSystem", "accountmanagement.AccountAdminPrivilegeRequest"],
+      "evidence_type": "privileged_access_request",
+      "pam_control_id": "PAMC-ACCESS-APPROVAL",
+      "recommended_test": {
+        "population_filter": {"field": "approval_required", "operator": "equals", "value": true},
+        "field": "approval_status",
+        "operator": "equals",
+        "value": "APPROVED",
+        "rationale": "Privileged change access requires an APPROVED workflow/ticket status."
+      }
+    },
+    {
+      "control_id": "CM-5",
+      "title": "Access Restrictions for Change",
+      "requirement_summary": "Define, document, approve, and enforce physical and logical access restrictions associated with changes to the system.",
+      "securden_capability": "Securden restricts privileged access for system changes through RBAC entitlements and approval workflows.",
+      "pam_models": ["accountmanagement.AccountUsers", "accountmanagement.AccountAdminPrivilegeRequest"],
+      "evidence_type": "access_authorization",
+      "pam_control_id": "PAMC-ACCESS-AUTHORIZATION",
+      "recommended_test": {
+        "field": "entitlement_status",
+        "operator": "equals",
+        "value": "AUTHORIZED",
+        "rationale": "Logical access to perform system changes is restricted to AUTHORIZED entitlements."
+      }
+    },
+    {
+      "control_id": "CM-7",
+      "title": "Least Functionality / Application Control",
+      "requirement_summary": "Configure the system to provide only essential capabilities and prohibit or restrict the use of unauthorized functions or applications.",
+      "securden_capability": "Securden controls application execution via allowlists/blocklists and requires approval for elevated application execution.",
+      "pam_models": ["configuration.ApplicationPolicy", "accountmanagement.AccountAdminPrivilegeRequest", "accountmanagement.PrivilegeRequestApplication"],
+      "evidence_type": "privileged_access_request",
+      "pam_control_id": "PAMC-ACCESS-APPROVAL",
+      "recommended_test": {
+        "population_filter": {"field": "approval_required", "operator": "equals", "value": true},
+        "field": "approval_status",
+        "operator": "equals",
+        "value": "APPROVED",
+        "rationale": "Elevated application execution requires an APPROVED request."
+      }
+    },
+    {
+      "control_id": "CP-9",
+      "aliases": ["CP-10"],
+      "title": "System Backup and Recovery / Break-Glass",
+      "requirement_summary": "Conduct backups of system-level and credential information and provide emergency recovery and break-glass access mechanisms.",
+      "securden_capability": "Securden automates encrypted database backups, HA/DR replication, and audited break-glass emergency access with mandatory justification.",
+      "pam_models": ["pam.LiveDBBackupStatus", "usermanagement.EmergencyAccessConfiguration", "usermanagement.EmergencyAccessUsers"],
+      "evidence_type": "break_glass_event",
+      "pam_control_id": "PAMC-EMERGENCY-ACCESS",
+      "recommended_test": {
+        "field": "justification_provided",
+        "operator": "equals",
+        "value": true,
+        "rationale": "Emergency break-glass access activations require a recorded justification."
+      }
+    },
+    {
+      "control_id": "IA-2",
+      "aliases": ["IA-2(1)", "IA-2(2)", "IA-2(5)", "IA-2(6)", "IA-2(8)", "IA-2(12)"],
+      "title": "Identification and Authentication (Organizational Users) & Multi-Factor Authentication",
+      "requirement_summary": "Uniquely identify and authenticate organizational users, require individual authentication before granting access to shared accounts, and implement multi-factor authentication for privileged and non-privileged access.",
+      "securden_capability": "Securden authenticates every individual user with MFA (TOTP, Duo, YubiKey/FIDO2, RADIUS, Email/SMS OTP, Push) before granting access to shared/privileged accounts or remote sessions.",
+      "pam_models": ["usermanagement.MFA", "usermanagement.UserMFAConfig", "audit.UserActivity", "audit.AccountActivity"],
+      "evidence_type": "privileged_access_authentication",
+      "pam_control_id": "PAMC-MFA-PRIVILEGED",
+      "recommended_test": {
+        "field": "mfa_status",
+        "operator": "equals",
+        "value": "VERIFIED",
+        "rationale": "Every privileged access event verifies multi-factor authentication (mfa_status = VERIFIED)."
+      }
+    },
+    {
+      "control_id": "IA-3",
+      "title": "Device Identification and Authentication",
+      "requirement_summary": "Uniquely identify and authenticate devices before establishing a connection.",
+      "securden_capability": "Securden authenticates target endpoints and devices using managed credentials, SSH key pairs, and digital certificates before establishing remote sessions.",
+      "pam_models": ["accountmanagement.Accounts", "accountmanagement.SSHKeys", "audit.AccountActiveRemoteSession"],
+      "evidence_type": "privileged_access_authentication",
+      "pam_control_id": "PAMC-MFA-PRIVILEGED",
+      "recommended_test": {
+        "field": "mfa_status",
+        "operator": "equals",
+        "value": "VERIFIED",
+        "rationale": "Connections to target endpoints require verified authentication."
+      }
+    },
+    {
+      "control_id": "IA-4",
+      "aliases": ["IA-4(1)"],
+      "title": "Identifier Management",
+      "requirement_summary": "Manage individual, group, role, service, and device identifiers, prohibit reuse for a defined period, and disable inactive identifiers.",
+      "securden_capability": "Securden uniquely tracks all user, service, and privileged account identifiers, preventing unauthorized use and disabling dormant accounts.",
+      "pam_models": ["accountmanagement.Accounts", "usermanagement.UserProfile", "accountmanagement.AccountUsers"],
+      "evidence_type": "access_authorization",
+      "pam_control_id": "PAMC-ACCESS-AUTHORIZATION",
+      "recommended_test": {
+        "field": "entitlement_status",
+        "operator": "equals",
+        "value": "AUTHORIZED",
+        "rationale": "System and privileged account identifiers are used only under AUTHORIZED entitlements."
+      }
+    },
+    {
+      "control_id": "IA-5",
+      "aliases": ["IA-5 a", "IA-5 f", "IA-5 h", "IA-5 i", "IA-5(1)", "IA-5(1) a", "IA-5(1) b", "IA-5(1) d", "IA-5(1) h", "IA-5(2)", "IA-5(6)", "IA-5(7)", "IA-5(16)"],
+      "title": "Authenticator Management",
+      "requirement_summary": "Manage password, SSH key, and certificate authenticators: verify identity on distribution, enforce complexity and salted/encrypted storage, prevent unencrypted static authenticators, rotate credentials periodically and upon membership changes, and enforce authorized private key access.",
+      "securden_capability": "Securden enforces granular password complexity policies, AES-256 encrypted credential vaulting, automated password and SSH key rotation schedules, and rotation upon check-in or role membership changes.",
+      "pam_models": ["accountmanagement.Accounts", "accountmanagement.PasswordHistory", "accountmanagement.SSHKeyRotationHistory", "accountmanagement.PasswordPolicy"],
+      "evidence_type": "credential_rotation",
+      "pam_control_id": "PAMC-CRED-ROTATION",
+      "recommended_test": {
+        "population_filter": {"field": "privileged", "operator": "equals", "value": true},
+        "field": "last_rotation_status",
+        "operator": "equals",
+        "value": "SUCCESS",
+        "rationale": "Managed privileged authenticators (passwords and SSH keys) have a verified SUCCESS rotation status."
+      }
+    },
+    {
+      "control_id": "IA-8",
+      "title": "Identification and Authentication (Non-Organizational Users)",
+      "requirement_summary": "Uniquely identify and authenticate non-organizational users (contractors, external vendors) or processes acting on behalf of non-organizational users.",
+      "securden_capability": "Securden Vendor Access Management provides brokered, time-limited, MFA-authenticated, and fully recorded access for third-party contractors and vendors.",
+      "pam_models": ["vendorapp.VendorAccess", "usermanagement.MFA", "audit.AccountActiveRemoteSession"],
+      "evidence_type": "privileged_access_authentication",
+      "pam_control_id": "PAMC-MFA-PRIVILEGED",
+      "recommended_test": {
+        "field": "mfa_status",
+        "operator": "equals",
+        "value": "VERIFIED",
+        "rationale": "External vendor and non-organizational user access requires VERIFIED authentication."
+      }
+    },
+    {
+      "control_id": "IA-9",
+      "title": "Service Identification and Authentication (Non-Human / A2A)",
+      "requirement_summary": "Uniquely identify and authenticate non-human service accounts, APIs, and application-to-application (A2A) connections.",
+      "securden_capability": "Securden manages service accounts and A2A API credentials with automated rotation and strict access authorization.",
+      "pam_models": ["accountmanagement.Accounts", "accountmanagement.PasswordHistory", "apiservermanagement.APIAccess"],
+      "evidence_type": "credential_rotation",
+      "pam_control_id": "PAMC-CRED-ROTATION",
+      "recommended_test": {
+        "population_filter": {"field": "privileged", "operator": "equals", "value": true},
+        "field": "last_rotation_status",
+        "operator": "equals",
+        "value": "SUCCESS",
+        "rationale": "Service account and A2A credentials are actively rotated with SUCCESS status."
+      }
+    },
+    {
+      "control_id": "IR-4",
+      "aliases": ["IR-5", "IR-7"],
+      "title": "Incident Handling, Monitoring, and Assistance",
+      "requirement_summary": "Support incident handling, incident monitoring, and investigative assistance for privileged accounts using audit records, session playback, SIEM forwarding, UBA alerts, and emergency access controls.",
+      "securden_capability": "Securden provides privileged-access audit trails, recorded session playback, SIEM/Syslog event forwarding, UBA anomaly alerts, and audited emergency break-glass access for incident response.",
+      "pam_models": ["audit.UserActivity", "audit.AccountActivity", "audit.RecordedSessionActivity", "pam.SyslogConfig"],
+      "evidence_type": "audit_log_coverage",
+      "pam_control_id": "PAMC-AUDIT-LOG-COMPLETENESS",
+      "recommended_test": {
+        "field": "integrity_verified",
+        "operator": "equals",
+        "value": true,
+        "rationale": "Privileged access audit telemetry is continuously collected and integrity-verified to support incident handling and monitoring."
+      }
+    },
+    {
+      "control_id": "MA-4",
+      "title": "Nonlocal Maintenance",
+      "requirement_summary": "Approve and monitor nonlocal maintenance and diagnostic activities and terminate session connections when nonlocal maintenance is completed.",
+      "securden_capability": "Securden requires request-release approval for remote maintenance sessions, records full video/keystroke sessions, and terminates sessions upon completion.",
+      "pam_models": ["accountmanagement.TechnicianAccessRequest", "audit.AccountActiveRemoteSession", "audit.RecordedSessionActivity"],
+      "evidence_type": "privileged_session",
+      "pam_control_id": "PAMC-SESSION-RECORDING",
+      "recommended_test": {
+        "population_filter": {"field": "recording_required", "operator": "equals", "value": true},
+        "field": "recording_status",
+        "operator": "equals",
+        "value": "AVAILABLE",
+        "rationale": "Nonlocal maintenance sessions are recorded with recording_status = AVAILABLE."
+      }
+    },
+    {
+      "control_id": "SC-8",
+      "aliases": ["SC-12", "SC-13", "SC-17", "SC-28", "SI-4"],
+      "title": "Transmission Confidentiality, Cryptographic Key Management, Protection at Rest & System Monitoring",
+      "requirement_summary": "Protect transmission confidentiality and integrity (TLS 1.2/1.3, SSH), manage cryptographic keys and certificates, protect stored vault secrets at rest with AES-256/FIPS encryption, and monitor system and user session activities in real time.",
+      "securden_capability": "Securden encrypts vault secrets with AES-256 (FIPS mode supported), secures transit with TLS 1.2/1.3, rotates SSH/PKI keys, and continuously monitors user session and audit activities in real time.",
+      "pam_models": ["pam.AsymmetricKeys", "pam.SecurityKeys", "accountmanagement.SSHKeyRotationHistory", "audit.UserActivity"],
+      "evidence_type": "audit_log_coverage",
+      "pam_control_id": "PAMC-AUDIT-LOG-COMPLETENESS",
+      "recommended_test": {
+        "field": "integrity_verified",
+        "operator": "equals",
+        "value": true,
+        "rationale": "Continuous monitoring and cryptographic integrity verification are active across the reporting window."
+      }
+    }
+  ]
+}

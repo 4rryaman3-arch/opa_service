@@ -1,0 +1,411 @@
+{
+  "$comment": "Securden PAM evidence field meanings and NIST SP 800-53 Control Mapping Matrix alignment.",
+  "credential_rotation": {
+    "account_id": {
+      "meaning": "Unique identifier of the managed account or service credential in Securden PAM.",
+      "shows": "Which privileged or non-privileged account owns the credential rotation record."
+    },
+    "privileged": {
+      "meaning": "Whether the managed account is classified as a privileged account.",
+      "shows": "Scope filter distinguishing privileged accounts from regular accounts."
+    },
+    "last_rotated_at": {
+      "meaning": "UTC timestamp when the account password, secret, or SSH key was last rotated.",
+      "shows": "Whether credentials were rotated within the required maximum age in days (NIST IA-5, IA-5(1), SC-12)."
+    },
+    "last_rotation_status": {
+      "meaning": "Outcome of the most recent automated or on-demand credential rotation attempt.",
+      "shows": "SUCCESS when password, secret, or SSH key rotation succeeded; FAILED when rotation failed (NIST IA-5, IA-5(1), IA-5(2), IA-5(6), IA-5(7), SC-12, SC-13, SC-17, SC-28)."
+    }
+  },
+  "privileged_account": {
+    "account_id": {
+      "meaning": "Unique identifier of the account in Securden PAM.",
+      "shows": "Which account record is being evaluated for lifecycle or dormancy."
+    },
+    "privileged": {
+      "meaning": "Whether the account holds privileged or administrative access rights.",
+      "shows": "Scope filter selecting privileged accounts."
+    },
+    "enabled": {
+      "meaning": "Whether the account is currently active and enabled for use in Securden PAM.",
+      "shows": "Scope filter selecting enabled accounts to verify none has remained unused past the dormancy threshold."
+    },
+    "created_at": {
+      "meaning": "UTC timestamp when the account was onboarded or created in Securden PAM.",
+      "shows": "Account onboarding timestamp within the reporting period."
+    },
+    "last_used_at": {
+      "meaning": "UTC timestamp when the account was last accessed or used for a session or checkout.",
+      "shows": "Whether an active privileged account has been used within the maximum allowed dormancy days (NIST AC-2, AC-2(2), AC-2(3), AC-2(13), IA-4)."
+    }
+  },
+  "privileged_session": {
+    "session_id": {
+      "meaning": "Unique identifier of the privileged remote session launched through Securden PAM.",
+      "shows": "Which interactive RDP, SSH, database, or web session is being evaluated."
+    },
+    "account_id": {
+      "meaning": "Identifier of the target privileged account used during the session.",
+      "shows": "Which managed account was accessed in the session."
+    },
+    "user_id": {
+      "meaning": "Identifier of the PAM user who initiated the privileged session.",
+      "shows": "Individual accountability for the privileged session."
+    },
+    "started_at": {
+      "meaning": "UTC timestamp when the privileged session started.",
+      "shows": "When the session occurred within the reporting period."
+    },
+    "ended_at": {
+      "meaning": "UTC timestamp when the privileged session terminated.",
+      "shows": "Whether the session has been properly terminated (exists / non-null) (NIST AC-12, AC-17, SC-10)."
+    },
+    "recording_required": {
+      "meaning": "Whether session recording is mandated by policy for this privileged session.",
+      "shows": "Scope filter selecting sessions that require session recording."
+    },
+    "recording_status": {
+      "meaning": "Availability and completeness status of the session recording artifact.",
+      "shows": "AVAILABLE when a full video/keystroke recording exists; PARTIAL, MISSING, FAILED, or PROCESSING otherwise (NIST AU-14, AC-17, AC-17(1), MA-4)."
+    },
+    "recording_reference": {
+      "meaning": "Opaque identifier referencing the stored session recording file or trail.",
+      "shows": "Whether a verifiable recording artifact link exists (exists / non-null) for audit playback (NIST AU-14, IR-7)."
+    }
+  },
+  "privileged_access_request": {
+    "access_id": {
+      "meaning": "Unique identifier of the privileged access or checkout event.",
+      "shows": "Which privileged access request or JIT elevation event is being checked."
+    },
+    "user_id": {
+      "meaning": "Identifier of the user requesting or exercising privileged access.",
+      "shows": "Which user accessed the privileged account."
+    },
+    "account_id": {
+      "meaning": "Identifier of the privileged account accessed.",
+      "shows": "Which target account was requested or elevated."
+    },
+    "accessed_at": {
+      "meaning": "UTC timestamp when the privileged access occurred.",
+      "shows": "Event timestamp within the reporting period."
+    },
+    "approval_required": {
+      "meaning": "Whether policy requires prior approval before granting access to this account.",
+      "shows": "Scope filter selecting access events governed by an approval workflow."
+    },
+    "approval_status": {
+      "meaning": "Workflow approval state at the time privileged access was exercised.",
+      "shows": "APPROVED when authorized via request-release workflow or JIT elevation; PENDING, DENIED, or NONE when unapproved (NIST AC-2, AC-3(2), AC-6, AC-6(1), AC-6(2), CM-3, CM-5)."
+    },
+    "approval_id": {
+      "meaning": "Identifier of the approval workflow record authorizing the access.",
+      "shows": "Whether a formal approval or ITSM ticket record exists (exists / non-null) for the access (NIST AC-2, CM-3)."
+    },
+    "approved_at": {
+      "meaning": "UTC timestamp when the request was approved.",
+      "shows": "Whether approval was recorded within the required timeframe (exists / non-null)."
+    },
+    "approver_id": {
+      "meaning": "Identifier of the designated approver who authorized the request.",
+      "shows": "Whether an accountable approver authorized the privileged access (exists / non-null) (NIST AC-2, AC-3(2), AC-5)."
+    }
+  },
+  "access_authorization": {
+    "access_id": {
+      "meaning": "Unique identifier of the privileged account access event.",
+      "shows": "Which access event is being checked against RBAC entitlements."
+    },
+    "user_id": {
+      "meaning": "Identifier of the user who performed the account access.",
+      "shows": "Which user accessed the account."
+    },
+    "account_id": {
+      "meaning": "Identifier of the accessed account.",
+      "shows": "Which managed account was accessed."
+    },
+    "accessed_at": {
+      "meaning": "UTC timestamp when the account access occurred.",
+      "shows": "Event timestamp within the reporting period."
+    },
+    "entitlement_status": {
+      "meaning": "Authorization status of the user's entitlement to the account at the time of access.",
+      "shows": "AUTHORIZED when permitted by an active RBAC role, folder, or account grant; NOT_AUTHORIZED, REVOKED, or UNKNOWN when unauthorized (NIST AC-2, AC-2(7), AC-3, AC-6, AC-6(1), AC-6(2), AC-6(3), AC-6(5), AC-6(10), CM-5)."
+    },
+    "entitlement_id": {
+      "meaning": "Identifier of the account, folder, or role entitlement granting access.",
+      "shows": "Whether a specific entitlement grant record exists (exists / non-null) (NIST AC-2, AC-3, AC-6)."
+    },
+    "entitlement_valid_from": {
+      "meaning": "UTC start timestamp of a time-bound access entitlement.",
+      "shows": "When the granted access window began (exists / non-null)."
+    },
+    "entitlement_valid_to": {
+      "meaning": "UTC expiration timestamp of a temporary or time-bound access entitlement.",
+      "shows": "Whether temporary/vendor/JIT access has an explicit expiration timestamp (exists / non-null) (NIST AC-2(2), IA-8)."
+    }
+  },
+  "authentication_summary": {
+    "principal_id": {
+      "meaning": "Unique identifier of the user principal attempting authentication.",
+      "shows": "Which user account experienced consecutive failed logon attempts."
+    },
+    "window_start": {
+      "meaning": "UTC start timestamp of the authentication observation window.",
+      "shows": "Start of the failed logon measurement interval."
+    },
+    "window_end": {
+      "meaning": "UTC end timestamp of the authentication observation window.",
+      "shows": "Reporting period timestamp for the authentication summary record."
+    },
+    "failed_attempts": {
+      "meaning": "Count of consecutive unsuccessful logon attempts recorded for the principal in the window.",
+      "shows": "Whether failed logon attempts stayed at or below the organization's max_failed_attempts threshold (NIST AC-7 a, AC-7(2))."
+    },
+    "lockout_triggered": {
+      "meaning": "Whether automatic account lockout was enforced after invalid logon attempts.",
+      "shows": "True when automatic account lockout is enforced upon reaching the failed logon limit (NIST AC-7 b)."
+    }
+  },
+  "break_glass_event": {
+    "event_id": {
+      "meaning": "Unique identifier of the emergency break-glass access activation event.",
+      "shows": "Which emergency access event is being evaluated."
+    },
+    "user_id": {
+      "meaning": "Identifier of the user who activated emergency break-glass access.",
+      "shows": "Individual accountability for emergency access usage."
+    },
+    "account_id": {
+      "meaning": "Identifier of the privileged account accessed via break-glass.",
+      "shows": "Which account was accessed under emergency procedures."
+    },
+    "activated_at": {
+      "meaning": "UTC timestamp when emergency break-glass access was activated.",
+      "shows": "When the break-glass event occurred within the reporting period."
+    },
+    "justification_provided": {
+      "meaning": "Whether the user supplied a documented reason when activating break-glass access.",
+      "shows": "True when a justification was recorded; false when break-glass was used without justification (NIST AC-2, IR-4, CP-10)."
+    },
+    "justification_length": {
+      "meaning": "Character length of the emergency access justification supplied by the user.",
+      "shows": "Whether the justification meets the minimum required character length threshold."
+    },
+    "ticket_reference": {
+      "meaning": "Incident or change ticket identifier linked to the break-glass event.",
+      "shows": "Whether an incident or change ticket reference was recorded (exists / non-null) (NIST AC-2, CM-3, IR-4)."
+    },
+    "post_review_completed": {
+      "meaning": "Whether a post-activation audit review of the emergency access event was completed.",
+      "shows": "True when the break-glass event underwent mandatory post-usage review; false otherwise (NIST AC-2, IR-4)."
+    },
+    "post_review_at": {
+      "meaning": "UTC timestamp when the post-activation review was completed.",
+      "shows": "Whether the post-usage review occurred within the required number of days."
+    }
+  },
+  "policy_exception": {
+    "exception_id": {
+      "meaning": "Unique identifier of the policy or Separation of Duties (SoD) exception.",
+      "shows": "Which policy waiver or SoD exception is being evaluated."
+    },
+    "rule_id": {
+      "meaning": "Identifier of the policy rule or SoD control covered by the exception.",
+      "shows": "Which control rule the exception applies to."
+    },
+    "status": {
+      "meaning": "Current lifecycle status of the policy or SoD exception.",
+      "shows": "ACTIVE when currently valid and approved; EXPIRED or REVOKED when no longer valid (NIST AC-5, CA-5, CA-7)."
+    },
+    "approved_at": {
+      "meaning": "UTC timestamp when the policy exception was approved.",
+      "shows": "When the exception was granted within the assessment window."
+    },
+    "expires_at": {
+      "meaning": "UTC timestamp when the policy exception expires.",
+      "shows": "Whether the exception is still within its approved validity window (NIST AC-5)."
+    },
+    "last_used_at": {
+      "meaning": "UTC timestamp when the exception was last relied upon.",
+      "shows": "Recent usage of the policy exception."
+    }
+  },
+  "access_review": {
+    "account_id": {
+      "meaning": "Unique identifier of the account or entitlement item subject to periodic access review.",
+      "shows": "Which account's access privileges are being reviewed."
+    },
+    "privileged": {
+      "meaning": "Whether the reviewed account is a privileged account.",
+      "shows": "Scope filter selecting privileged accounts for access review checks."
+    },
+    "enabled": {
+      "meaning": "Whether the reviewed account is currently enabled.",
+      "shows": "Scope filter selecting enabled accounts."
+    },
+    "owner_id": {
+      "meaning": "Identifier of the designated owner of the account.",
+      "shows": "Whether the account has an assigned owner (exists / non-null) (NIST AC-2)."
+    },
+    "reviewer_id": {
+      "meaning": "Identifier of the reviewer who completed the access certification decision.",
+      "shows": "Whether an accountable reviewer attested to the review (exists / non-null) (NIST AC-2(j), AC-5, AC-6(7))."
+    },
+    "last_review_completed_at": {
+      "meaning": "UTC timestamp when the most recent periodic access review was completed for the account.",
+      "shows": "Whether the account's access privileges were reviewed within the required review_interval_days (NIST AC-2(j), AC-6(7), CA-7)."
+    },
+    "last_review_outcome": {
+      "meaning": "Attestation decision recorded by the reviewer during the latest access certification campaign.",
+      "shows": "CERTIFIED when access was verified and re-approved; REVOKED when access violated policy or SoD (NIST AC-2(j), AC-5, AC-6(7), PS-4, PS-5)."
+    }
+  },
+  "audit_log_coverage": {
+    "source_id": {
+      "meaning": "Unique identifier of the Securden PAM audit log source or telemetry stream.",
+      "shows": "Which audit log subsystem is being checked for completeness and integrity."
+    },
+    "coverage_start": {
+      "meaning": "UTC start timestamp of the audit log coverage interval.",
+      "shows": "Beginning of the monitored audit collection window."
+    },
+    "coverage_end": {
+      "meaning": "UTC end timestamp of the audit log coverage interval.",
+      "shows": "Reporting period timestamp for the audit coverage summary."
+    },
+    "expected_event_count": {
+      "meaning": "Number of audit events expected from the audit source during the interval.",
+      "shows": "Baseline event volume expected for complete audit capture."
+    },
+    "received_event_count": {
+      "meaning": "Number of audit events actually recorded and retained from the audit source.",
+      "shows": "Whether audit logging is actively capturing and retaining events (NIST AU-2, AU-4, AU-6, AU-11, AU-12, SI-4)."
+    },
+    "max_gap_seconds": {
+      "meaning": "Longest gap in seconds between consecutive audit health or event recordings in the period.",
+      "shows": "Whether audit collection operated continuously within max_allowed_gap_seconds (NIST AU-5, AU-6, AU-11, AU-12, SI-4)."
+    },
+    "integrity_verified": {
+      "meaning": "Whether the audit trail passed integrity and tamper-protection verification.",
+      "shows": "True when audit records and logging tools are protected against unauthorized access, modification, and deletion (NIST AU-9, AU-9(4), AU-9(6), AU-11)."
+    }
+  },
+  "audit_event": {
+    "event_id": {
+      "meaning": "Unique identifier of the individual audit log entry.",
+      "shows": "Which audit record is being inspected for required AU-3 content elements."
+    },
+    "occurred_at": {
+      "meaning": "Synchronized UTC timestamp when the audited event occurred.",
+      "shows": "When the event occurred within the reporting period (AU-3/AU-8 timestamp requirement)."
+    },
+    "event_type": {
+      "meaning": "Classification identifier indicating what type of event occurred.",
+      "shows": "Whether the audit record captures the type of event (exists / non-null) (NIST AU-2, AU-3 a, AU-12, AC-2(4), AC-6(9))."
+    },
+    "location_id": {
+      "meaning": "Identifier of the system component or server where the event occurred.",
+      "shows": "Whether the audit record captures where the event occurred (exists / non-null) (NIST AU-3 c)."
+    },
+    "source_id": {
+      "meaning": "Identifier of the originating host, client IP address, or source of the event.",
+      "shows": "Whether the audit record captures the source of the event (exists / non-null) (NIST AU-3 d)."
+    },
+    "outcome": {
+      "meaning": "Result of the audited action (SUCCESS, FAILURE, DENIED, or ERROR).",
+      "shows": "Whether the audit record captures the outcome of the event (exists / non-null) (NIST AU-3 e)."
+    },
+    "actor_id": {
+      "meaning": "Identifier of the individual user or subject associated with the event.",
+      "shows": "Whether the audit record identifies the individual user/actor who performed the action (exists / non-null) (NIST AU-3 f, AU-12(4), AC-6(9))."
+    },
+    "target_id": {
+      "meaning": "Identifier of the target account, object, or entity acted upon.",
+      "shows": "Whether the audit record identifies the target object or account affected (exists / non-null) (NIST AU-3 f, AC-2(4), AU-12(4))."
+    }
+  },
+  "mfa_configuration": {
+    "principal_id": {
+      "meaning": "Unique identifier of the user or account principal in Securden PAM.",
+      "shows": "Which principal's MFA configuration snapshot is being evaluated."
+    },
+    "principal_type": {
+      "meaning": "Whether the principal is a USER or an ACCOUNT.",
+      "shows": "Type of principal (USER or ACCOUNT) subject to MFA enforcement."
+    },
+    "privileged": {
+      "meaning": "Whether the principal holds privileged access rights in Securden PAM.",
+      "shows": "Scope filter selecting privileged users or accounts."
+    },
+    "enabled": {
+      "meaning": "Whether the principal is currently enabled for login.",
+      "shows": "Scope filter selecting enabled principals."
+    },
+    "mfa_enforced": {
+      "meaning": "Whether multi-factor authentication (MFA) is enforced for this principal by policy.",
+      "shows": "True when MFA is required for the user; false when single-factor login is permitted (NIST IA-2, IA-2(1), IA-2(2), IA-2(8), IA-2(12))."
+    },
+    "mfa_methods": {
+      "meaning": "List of MFA factor methods configured for the principal (totp, push, fido2, smart_card, hardware_token, sms, email_otp).",
+      "shows": "Which authenticators are enrolled for the principal."
+    },
+    "captured_at": {
+      "meaning": "UTC timestamp when the MFA configuration snapshot was captured.",
+      "shows": "Snapshot timestamp within the reporting period."
+    }
+  },
+  "privileged_access_authentication": {
+    "access_id": {
+      "meaning": "Unique identifier of the privileged access authentication event.",
+      "shows": "Which privileged access attempt is being evaluated."
+    },
+    "user_id": {
+      "meaning": "Identifier of the user authenticating for privileged access.",
+      "shows": "Individual user accountability for the authentication event."
+    },
+    "account_id": {
+      "meaning": "Identifier of the target privileged account being accessed.",
+      "shows": "Which privileged account required authentication."
+    },
+    "accessed_at": {
+      "meaning": "UTC timestamp when the privileged access authentication occurred.",
+      "shows": "Event timestamp within the reporting period."
+    },
+    "access_granted": {
+      "meaning": "Whether privileged access was granted following the authentication check.",
+      "shows": "True when access was granted after individual authentication; false when blocked (NIST IA-2, IA-8)."
+    },
+    "mfa_status": {
+      "meaning": "Result of multi-factor authentication verification for this privileged access event.",
+      "shows": "VERIFIED when individual MFA authentication succeeded before granting privileged or shared-account access; NOT_PERFORMED, FAILED, or UNKNOWN otherwise (NIST IA-2, IA-2(1), IA-2(2), IA-2(5), IA-2(6), IA-5 a/h, IA-8, AC-17)."
+    },
+    "mfa_method": {
+      "meaning": "Specific MFA factor used to verify the user (totp, push, fido2, smart_card, hardware_token, sms, email_otp).",
+      "shows": "Which multi-factor method was completed when mfa_status is VERIFIED (exists / non-null)."
+    }
+  },
+  "session_policy_configuration": {
+    "policy_id": {
+      "meaning": "Unique identifier of the session timeout policy in Securden PAM.",
+      "shows": "Which session management policy snapshot is being checked."
+    },
+    "applies_to_privileged": {
+      "meaning": "Whether this session policy governs privileged sessions and administrative interfaces.",
+      "shows": "Scope filter selecting session policies that apply to privileged access."
+    },
+    "idle_timeout_enabled": {
+      "meaning": "Whether automatic session lock or termination upon inactivity is enabled.",
+      "shows": "True when idle interactive sessions are automatically locked or terminated; false when sessions never time out (NIST AC-11, AC-12, SC-10)."
+    },
+    "idle_timeout_minutes": {
+      "meaning": "Configured inactivity timeout duration in minutes before a session is locked or terminated.",
+      "shows": "Whether the idle timeout duration is at most max_idle_minutes (NIST AC-11 a, AC-12)."
+    },
+    "captured_at": {
+      "meaning": "UTC timestamp when the session policy configuration snapshot was captured.",
+      "shows": "Snapshot timestamp within the reporting period."
+    }
+  }
+}
