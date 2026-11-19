@@ -150,6 +150,18 @@ class Jobs:
                         auto_publish_validated_rules=payload.get('auto_publish_validated_rules', False),
                         collector_capability_digest=payload.get('collector_capability_digest'),
                         bundle_dir=self.bundle_dir, rule_store_path=self.rule_store_path)
+            if payload['action'] == 'generate_rules':  # rule generation only, for already published requirements
+                from . import preparation
+                from app.engine.catalog import Catalog
+                engine = Catalog.load(self.bundle_dir) if self.bundle_dir is not None else None
+                progress = (lambda stage, **info: self.set_progress(job_id, stage, **info)) if job_id else None
+                with _llm() as llm:
+                    return preparation.generate_rules(
+                        db, actor=actor, scope=payload['organization_scope'],
+                        framework_ids=payload['requested_framework_ids'], llm=llm, engine=engine,
+                        tenant_id=payload.get('tenant_id'), publish=payload.get('auto_publish_validated_rules', False),
+                        collector_capability_digest=payload.get('collector_capability_digest'), job_id=job_id,
+                        progress=progress, bundle_dir=self.bundle_dir, rule_store_path=self.rule_store_path)
             if payload['action'] == 'build_framework':  # removed action; only a job queued before the upgrade
                 raise CatalogError('ACTION_REMOVED', "build_framework was removed; use prepare_catalog")
             def on_section(index, total):

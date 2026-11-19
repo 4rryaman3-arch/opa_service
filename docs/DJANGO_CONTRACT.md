@@ -646,6 +646,12 @@ proposal (no new model call) and activates it. The body may be the PAM capabilit
 `evidence_capabilities` is accepted for `evidence`, and top-level `schema_version` and `settings_sources`
 (where each threshold lives in the PAM; the values themselves come from `PUT /admin/pam-configuration`) are accepted.
 
+Each entry may also carry `field_meanings {field: {meaning, shows}}` (strings up to 300 characters; only for fields
+in its `supported_fields`, else 422 `UNKNOWN_EVIDENCE_FIELD`): what the field means in this PAM and which kind of
+obligation a test on it can evidence. The rule generator reasons from these meanings, not from field names. Without
+them OPM uses its framework-neutral defaults (`regintel/data/field_meanings.json`, one entry per field). Meanings
+are part of the declaration digest only when given.
+
 **Gates, in order** (the first failing one is the outcome):
 1. Forbidden content anywhere in the output: code (Rego/Python), URLs, file paths, templates, credential material,
    claims of full coverage → `RULE_SPEC_INVALID`.
@@ -706,12 +712,25 @@ raw output. A retry with identical inputs re-checks the stored output without ca
   `step` (`done`/`total`, `unit` `requirements`, `seconds_per_unit`, `eta_seconds`) and a job `eta`, as for
   `candidate_review`. It also returns `orchestration_stage` and `rule_generation`:
   `{done, total, substep, current{requirement_id, section_ref, control_id, clause}, outcomes{code: n},
-  rules_activated, rules_validated, seconds_per_requirement, recent[]}`. `substep` is `propose` (model call),
-  `validate`, `compile`, `test`, `activate` or `done`; `outcomes` uses the `orchestration_outcome` codes. `recent[]`
+  rules_activated, rules_validated, seconds_per_requirement, recent[]}`. `substep` is `propose` (started),
+  `analyse` (model reasons in plain text), `write` (model writes the RuleSpec), `validate`, `judge` (model reviews
+  the finished rule), `compile`, `test`, `activate` or `done`; `outcomes` uses the `orchestration_outcome` codes.
+  Existing-rule matching before it is also counted: stage `llm_mapping` (`orchestration_stage`
+  `match_existing_rules`), `unit` `requirements`, `current{requirement_id}`; its job `eta` is null with
+  `MORE_WORK_UNKNOWN` when generation follows. `recent[]`
   holds the last 5 decisions: `{requirement_id, section_ref, control_id, clause, outcome, rule_id, reason,
   model_called}`. `reason` says why no rule was generated (e.g. "declared parameters not used by the condition").
   `rule_generation` is null in every other stage. These per-requirement markers are not added to `stages[]`.
-- Generation (prompt `rule-spec-v3`) only asks the model about a requirement whose wording relates to a declared
+- Generation (prompt `rule-spec-v15`) asks the model in three steps, each re-used from the stored decision on an
+  identical retry: **analyse** (plain text, no grammar: the obligation, what a compliant and a violating record look
+  like, the field that tells them apart; ends `VERDICT: TESTABLE <type>.<field>`, `NOT_TESTABLE` →
+  `NO_RULE_PROPOSED` or `PERSON_JUDGES` → `MANUAL_ASSESSMENT_REQUIRED`, with the reasoning in `message`), **write**
+  (the RuleSpec under the grammar, given the analysis and only the chosen evidence type), and after the
+  deterministic gates **judge** (plain text: does a failing record mean the obligation was breached; `JUDGE: NO` →
+  `RULE_SPEC_INVALID` "review (NO)"). The decision's `llm_validation` keeps `analysis {text, verdict, evidence_type,
+  field}` and `review {text, verdict, spec_digest}`; a judged rule has the check `judged_by_model`. With a runtime
+  that cannot answer in plain text the analyse and judge steps are skipped and the word gate below decides.
+- Generation only asks the model about a requirement whose wording relates to a declared
   evidence type with a collected non-null timestamp (screen `rule-screen-v2`: each evidence type has a keyword list, and only the types whose
   keywords the requirement uses are offered to the model). Any other requirement is
   `COLLECTOR_MISSING` with `model_called: false`. The model decodes against a per-requirement grammar whose
@@ -719,7 +738,21 @@ raw output. A retry with identical inputs re-checks the stored output without ca
   condition never uses are dropped and recorded under `checks`. A condition that tests only the record's own id or
   period is rejected (`RULE_SPEC_INVALID`). The condition must also test at least one field whose meaning the
   requirement text states (gate `rule-grounding-v3`; e.g. `enabled` needs "enable"/"disable", `recording_status`
-  needs "record"); otherwise `RULE_SPEC_INVALID` with the tested fields in `reason`.
+  needs "recording(s)"/"recorded"); otherwise `RULE_SPEC_INVALID` with the tested fields in `reason`. When the judge
+  step runs, this gate is a hint (`condition_not_word_grounded` is recorded and the judge is told) and the judge
+  decides. Always rejected: a condition repeating a population filter (filters take only scope flags such as
+  `privileged`, `*_required`, `applies_to_*`), a condition requiring accounts to be enabled, and limitations copied
+  from the prompt's worked example.
+
+**Generation only** (`POST /admin/jobs`, action `generate_rules`, scope `catalog:automate` and the organization
+header): `{action, requested_framework_ids[1..20], tenant_id?, auto_publish_validated_rules?,
+collector_capability_digest?, request_key}`. It runs existing-rule matching and generation for the requirements
+already published in this scope for those frameworks, without retrieving, extracting or re-validating documents.
+Same gates as `auto_rule_generation` above (flags, tenant, pinned digest). The result has `status`,
+`existing_rule_matching` (counts), `counts`, `rule_generation_decisions[]`, `mapping_ids`, `stages[]`; monitor it
+with `GET /admin/jobs/{id}/progress` exactly as above. Readiness is not recomputed by this job.
+Client: `OpmClient.generate_rules(framework_ids=..., request_key=..., tenant_id=..., auto_publish_validated_rules=...,
+collector_capability_digest=...)`.
 
 **Orchestration outcome per requirement** (`orchestration_outcome`):
 `EXISTING_RULE_ASSIGNED`, `GENERATED_RULE_ACTIVATED`, `GENERATED_RULE_VALIDATED`, `PARAMETER_SOURCE_MISSING`,

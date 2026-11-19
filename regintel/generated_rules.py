@@ -69,7 +69,13 @@ COMPILER_VERSION = "pam-rulespec-compiler-1.0"
 # v12: scope flags filter only, every other field is condition-only (filter and condition are disjoint)
 # v13: a condition requiring accounts to be enabled is rejected
 # v14: limitations copied from the worked example are rejected; the example no longer says to declare parameters
-PROMPT_VERSION = "rule-spec-v14"
+# v15: reason first, then write, then review: a plain-text analysis (obligation, compliant vs violating record, the
+# field that tells them apart, or NOT_TESTABLE / PERSON_JUDGES) precedes the grammar-constrained RuleSpec, fields
+# carry their meaning (regintel/data/field_meanings.json or the collector's field_meanings), and an independent
+# plain-text review must accept the finished rule; word grounding becomes a hint to the review instead of a gate
+# v16: a NOT_TESTABLE analysis that names a declared test field with a value goes on to write and judge
+# v17: that check also reads "`field` as VALUE", "field shows ...", "field: VALUE"
+PROMPT_VERSION = "rule-spec-v17"
 POLICY_VERSION = "rule-gen-v1"
 FLAG_GENERATE = "REGINTEL_AUTO_RULE_GENERATION"
 FLAG_PUBLISH = "REGINTEL_AUTO_PUBLISH_GENERATED_RULES"
@@ -984,7 +990,8 @@ SYSTEM_RULESPEC = (
     "compliance (a status, a flag or a timestamp age), not merely that the record exists.")
 
 
-def _context(db: CatalogDb, req: dict[str, Any], ref: dict[str, Any], cap: dict[str, Any]) -> str:
+def _context(db: CatalogDb, req: dict[str, Any], ref: dict[str, Any], cap: dict[str, Any],
+             analysis: dict[str, Any] | None = None) -> str:
     detail = cap.get("evidence_detail") or {}
     evidence = []
     for etype in sorted(detail):
@@ -997,7 +1004,8 @@ def _context(db: CatalogDb, req: dict[str, Any], ref: dict[str, Any], cap: dict[
                          else "collected", **({"caveats": d["caveats"]} if d.get("caveats") else {}),
                          "fields": {n: {"type": cat[n]["type"], "nullable": cat[n]["nullable"],
                                         **({"values": list(cat[n]["values"])} if cat[n]["values"] else {}),
-                                        **({"unit": field_unit(n)} if field_unit(n) else {})}
+                                        **({"unit": field_unit(n)} if field_unit(n) else {}),
+                                        **field_meaning(cap, etype, n)}
                                     for n in d["supported_fields"] if n in cat}})
     settings = []
     for (cid, _v), defn in sorted(pc.CONTROLS.items()):
@@ -1010,6 +1018,7 @@ def _context(db: CatalogDb, req: dict[str, Any], ref: dict[str, Any], cap: dict[
     payload = {
         "requirement_id": req["id"], "requirement_text": req.get("translation_en") or req["original_text"],
         "canonical_control": {k: ref.get(k) for k in ("canonical_id", "control_title", "clause")},
+        **({"your_analysis": analysis["text"]} if analysis else {}),
         "evidence_types": evidence, "pam_controls": controls, "organization_settings": settings,
         "operators": {t: sorted(ops) for t, ops in _SPEC_OPS.items()},
         "rules": ["population.period_field: the record's event or capture timestamp (non-null datetime)",
@@ -1121,7 +1130,126 @@ def catalog_digest(cap: dict[str, Any]) -> str:
     from LOOKUP_AVAILABLE to COLLECTED re-checks the stored proposal instead of asking the model again."""
     detail = cap.get("evidence_detail") or {}
     return digest_of({e: {"v": declared_version(cap, e), "modes": d.get("assessment_modes"),
-                          "fields": d.get("supported_fields")} for e, d in sorted(detail.items())})
+                          "fields": d.get("supported_fields"),
+                          **({"meanings": d["field_meanings"]} if d.get("field_meanings") else {})}
+                      for e, d in sorted(detail.items())})
+
+
+# ---------------------------------------------------------------- meaning-based reasoning (analyse, then judge)
+
+_MEANINGS_FILE = Path(__file__).resolve().parent / "data" / "field_meanings.json"
+FIELD_MEANINGS: dict[str, dict[str, dict[str, str]]] = {
+    e: f for e, f in json.loads(_MEANINGS_FILE.read_text(encoding="utf-8")).items() if not e.startswith("$")}
+
+
+def field_meaning(cap: dict[str, Any], etype: str, field: str) -> dict[str, str]:
+    """What a field shows: the collector's own declaration (field_meanings) over OPM's framework-neutral defaults."""
+    declared = (((cap.get("evidence_detail") or {}).get(etype) or {}).get("field_meanings") or {}).get(field)
+    return dict(declared or FIELD_MEANINGS.get(etype, {}).get(field) or {})
+
+
+def _evidence_brief(cap: dict[str, Any], etypes: list[str]) -> str:
+    """Compact plain-text description of the offered evidence for the reasoning and judging calls."""
+    lines = []
+    for etype in etypes:
+        d = (cap.get("evidence_detail") or {}).get(etype) or {}
+        cat = CUSTOM_RULE_FIELDS.get(etype, {})
+        lines.append(f"{etype} ({'available by lookup' if is_lookup(cap, etype) else 'collected'}):")
+        for f in d.get("supported_fields") or []:
+            if f in ("record_id", "scope_tags") or f not in cat:
+                continue
+            m = field_meaning(cap, etype, f)
+            vals = f" values {'/'.join(cat[f]['values'])}" if cat[f].get("values") else ""
+            shows = f"; shows: {m['shows']}" if m.get("shows") else ""
+            lines.append(f"  - {f} [{cat[f]['type']}{vals}]: {m.get('meaning', 'no description')}{shows}")
+    return "\n".join(lines)
+
+
+SYSTEM_ANALYSE = (
+    "You are a PAM compliance analyst. Decide whether ONE regulatory requirement can be checked automatically from "
+    "the listed PAM evidence. Reason from what each field MEANS, not from shared words. Answer in at most 150 words:\n"
+    "1. Obligation: what the requirement obliges, in one sentence.\n"
+    "2. Compliant vs violating: what a compliant record and a violating record would look like.\n"
+    "3. Evidence: which listed field tells them apart, and which records are in scope; or why none does.\n"
+    "Many requirements are about documents, procedures, design or people's judgement: those are NOT testable from "
+    "records. A field that merely shares a word with the requirement does not test it.\n"
+    "End with exactly one line, one of:\n"
+    "VERDICT: TESTABLE <evidence_type>.<field>\nVERDICT: NOT_TESTABLE\nVERDICT: PERSON_JUDGES")
+
+SYSTEM_JUDGE = (
+    "You are a strict PAM compliance reviewer. You get a regulatory requirement and an automated rule. Decide "
+    "whether the rule really tests the requirement: a record failing the rule must mean the obligation was not met "
+    "for it, and normal compliant behaviour must pass. Every automated rule is PARTIAL by design: accept a rule that "
+    "correctly tests ONE part of the obligation even though it does not cover the rest (its limitations say what is "
+    "left out). Reject rules that test a different obligation, that only share words with the requirement, or that "
+    "would flag compliant behaviour. Answer in at most 80 words, then end "
+    "with exactly one line: JUDGE: YES or JUDGE: NO")
+
+_VERDICT = re.compile(r"VERDICT:\s*(TESTABLE\s+([a-z_]+)\.([a-z_]+)|NOT_TESTABLE|PERSON_JUDGES)")
+_JUDGE = re.compile(r"JUDGE:\s*(YES|NO)\b")
+
+
+def can_reason(llm: Any) -> bool:
+    return callable(getattr(llm, "generate_text", None))
+
+
+def named_fields(text: str, cap: dict[str, Any], etypes: list[str]) -> list[str]:
+    """Declared fields (other than identifiers, timestamps of the period and scope flags) the reasoning names
+    together with a value or comparison, e.g. "entitlement_status = AUTHORIZED" or "`mfa_status` is VERIFIED"."""
+    out = []
+    for etype in etypes:
+        cat = CUSTOM_RULE_FIELDS.get(etype, {})
+        for f in (((cap.get("evidence_detail") or {}).get(etype) or {}).get("supported_fields") or []):
+            if f not in cat or f in ("record_id", "scope_tags") or (cat[f]["type"] == "string" and not cat[f]["nullable"]):
+                continue
+            if re.search(rf"`?\b{re.escape(f)}\b`?\s*(?:=|==|!=|<|>|:|is\b|as\b|equals?\b|of\b|set to\b|shows?\b"
+                         rf"|reads?\b|being\b|would be\b|must be\b)", text):
+                out.append(f)
+    return sorted(set(out))
+
+
+def analyse(llm: Any, req: dict[str, Any], cap: dict[str, Any], etypes: list[str]) -> dict[str, Any]:
+    """Step 1 (no grammar): the model reasons about the obligation and names the field that would test it.
+    Returns {"text", "verdict": TESTABLE|NOT_TESTABLE|PERSON_JUDGES|UNCLEAR, "evidence_type", "field"}."""
+    prompt = (f"Requirement: {req.get('translation_en') or req['original_text']}\n\nPAM evidence:\n"
+              f"{_evidence_brief(cap, etypes)}")
+    text = llm.generate_text(SYSTEM_ANALYSE, prompt, max_tokens=400).content.strip()
+    found = _VERDICT.findall(text)
+    if not found:
+        return {"text": text[:2000], "verdict": "UNCLEAR", "evidence_type": None, "field": None}
+    whole, etype, field = found[-1]
+    verdict = "TESTABLE" if whole.startswith("TESTABLE") else whole
+    if verdict == "TESTABLE" and (etype not in etypes or field not in
+                                  (((cap.get("evidence_detail") or {}).get(etype) or {}).get("supported_fields") or [])):
+        verdict = "UNCLEAR"  # named something that is not offered: let the writing step choose among the offered
+    if verdict == "NOT_TESTABLE" and named_fields(text, cap, etypes):
+        # small models contradict themselves ("a compliant record shows entitlement_status = AUTHORIZED ... VERDICT:
+        # NOT_TESTABLE" for AC-2 i): reasoning that names a declared test field is not a decline; write and judge it
+        verdict = "UNCLEAR"
+    return {"text": text[:2000], "verdict": verdict, "evidence_type": etype or None, "field": field or None}
+
+
+def describe_rule(spec: RuleSpec, cap: dict[str, Any]) -> str:
+    def pred(p: Any) -> str:
+        m = field_meaning(cap, spec.evidence_type, p.field).get("meaning", "")
+        rhs = f"parameter {p.parameter}" if p.parameter else ("" if p.value is None else json.dumps(p.value))
+        return f"{p.field} {p.operator} {rhs}".strip() + (f" ({m})" if m else "")
+    scope = "; ".join(pred(p) for p in spec.population.where) or "all records"
+    tests = "; ".join(pred(p) for p in _predicates(spec.condition))
+    return (f"Evidence: {spec.evidence_type} records in the assessment period (by {spec.population.period_field}).\n"
+            f"In scope: {scope}.\nEach in-scope record must satisfy: {tests}.\n"
+            f"Stated limitations: {'; '.join(spec.limitations) or 'none'}.")
+
+
+def judge(llm: Any, req: dict[str, Any], spec: RuleSpec, cap: dict[str, Any], *, grounded: bool) -> dict[str, Any]:
+    """Step 3 (no grammar): an independent review of the finished rule against the requirement."""
+    note = "" if grounded else ("\nNote: the requirement text does not use the usual words for the tested field; "
+                                "accept only if the meaning clearly matches.")
+    prompt = (f"Requirement: {req.get('translation_en') or req['original_text']}\n\nRule:\n{describe_rule(spec, cap)}"
+              f"{note}")
+    text = llm.generate_text(SYSTEM_JUDGE, prompt, max_tokens=250).content.strip()
+    found = _JUDGE.findall(text)
+    return {"text": text[:1500], "verdict": found[-1] if found else "UNCLEAR"}
 
 
 def grounded_fields(spec: RuleSpec, req: dict[str, Any]) -> list[str]:
@@ -1462,27 +1590,71 @@ def _live_mappings_for_rule(db: CatalogDb, rule_id: str, scope: str) -> list[dic
                 "('DRAFT','APPROVED')", (rule_id, scope))
 
 
+def _analysis_gap(analysis: dict[str, Any]) -> dict[str, Any] | None:
+    if analysis["verdict"] == "NOT_TESTABLE":
+        return _gap("NO_RULE_PROPOSED", "analysis: not testable from the declared evidence - "
+                    + analysis["text"][-600:], analysis=analysis)
+    if analysis["verdict"] == "PERSON_JUDGES":
+        return _gap("MANUAL_ASSESSMENT_REQUIRED", "analysis: a person must judge this - " + analysis["text"][-600:],
+                    analysis=analysis)
+    return None
+
+
+def _cached_review(db: CatalogDb, scope: str, rid: int, proposal_key: str, spec: RuleSpec) -> dict[str, Any] | None:
+    """The stored model review of this exact rule for these inputs, so a re-run does not ask again."""
+    want = digest_of(spec.model_dump(mode="json"))
+    for row in db.q("SELECT llm_validation FROM rule_generation_decision WHERE organization_scope=? AND "
+                    "requirement_id=? ORDER BY id DESC", (scope, rid)):
+        v = row["llm_validation"] or {}
+        r = v.get("review")
+        if v.get("proposal_key") == proposal_key and r and r.get("spec_digest") == want:
+            return r
+    return None
+
+
 def _proposal_for(db: CatalogDb, llm: Any, req: dict[str, Any], ref: dict[str, Any], cap: dict[str, Any], *,
-                  scope: str, proposal_key: str) -> tuple[str | None, dict[str, Any] | None, dict[str, Any] | None, bool]:
-    """(raw, parsed proposal json, gap, model_called). For identical inputs the earlier raw output is
-    re-checked deterministically instead of asking the model again (also when it was rejected)."""
+                  scope: str, proposal_key: str, step: Any = None
+                  ) -> tuple[str | None, dict[str, Any] | None, dict[str, Any] | None, bool, dict[str, Any] | None]:
+    """(raw, parsed proposal json, gap, model_called, analysis). Two model steps when the client can reason in plain
+    text: analyse (no grammar) then write (RuleSpec grammar, given the analysis). For identical inputs the stored
+    analysis and raw output are re-checked deterministically instead of asking the model again."""
+    step = step or (lambda _s: None)
     for row in db.q("SELECT raw_output, llm_validation FROM rule_generation_decision WHERE organization_scope=? AND "
                     "requirement_id=? ORDER BY id DESC", (scope, req["id"])):
-        if (row["llm_validation"] or {}).get("proposal_key") == proposal_key and row["raw_output"] is not None:
-            return (row["raw_output"], *_parse(row["raw_output"], truncated=False), False)
+        v = row["llm_validation"] or {}
+        if v.get("proposal_key") != proposal_key:
+            continue
+        analysis = v.get("analysis")
+        if row["raw_output"] is not None:
+            return (row["raw_output"], *_parse(row["raw_output"], truncated=False), False, analysis)
+        if analysis and _analysis_gap(analysis):
+            return None, None, _analysis_gap(analysis), False, analysis
     relevant = relevant_evidence(req, cap)
     if not relevant:
         declared = sorted((cap.get("evidence_detail") or {}))
         return None, None, _gap("COLLECTOR_MISSING", f"no declared evidence type relates to this requirement "
                                 f"({SCREEN_VERSION}; declared: {', '.join(declared) or 'none'}); not sent to the "
-                                "model"), False
+                                "model"), False, None
+    analysis = None
+    if can_reason(llm):
+        step("analyse")
+        try:
+            analysis = analyse(llm, req, cap, relevant)
+        except LlmError as exc:
+            return None, None, _gap("LLM_ERROR", f"analysis: {str(exc)[:280]}"), True, None
+        gap = _analysis_gap(analysis)
+        if gap:
+            return None, None, gap, True, analysis
+        if analysis["verdict"] == "TESTABLE":
+            relevant = [analysis["evidence_type"]]  # write against the one type the analysis chose (smaller grammar)
     narrowed = {**cap, "evidence_detail": {e: (cap.get("evidence_detail") or {})[e] for e in relevant}}
+    step("write")
     try:
-        out = llm.generate_raw(SYSTEM_RULESPEC + " " + EXAMPLE_PROPOSAL, _context(db, req, ref, narrowed),
+        out = llm.generate_raw(SYSTEM_RULESPEC + " " + EXAMPLE_PROPOSAL, _context(db, req, ref, narrowed, analysis),
                                grammar_schema(db, req, narrowed))
     except LlmError as exc:
-        return None, None, _gap("LLM_ERROR", str(exc)[:300]), True
-    return (out.content, *_parse(out.content, truncated=bool(getattr(out, "truncated", False))), True)
+        return None, None, _gap("LLM_ERROR", str(exc)[:300]), True, analysis
+    return (out.content, *_parse(out.content, truncated=bool(getattr(out, "truncated", False))), True, analysis)
 
 
 def _first_object(raw: str) -> Any:
@@ -1628,8 +1800,10 @@ def generate(db: CatalogDb, engine: Any, llm: Any, decisions: list[dict[str, Any
                                   "screen": SCREEN_VERSION,
                                   "model": [model, model_digest]})
         record: dict[str, Any] = {"requirement_id": rid, "trigger_gap_code": d.get("gap_code")}
-        raw, proposal_json, result, _called = _proposal_for(db, llm, req, ref, cap, scope=scope,
-                                                            proposal_key=proposal_key)
+        raw, proposal_json, result, _called, analysis = _proposal_for(
+            db, llm, req, ref, cap, scope=scope, proposal_key=proposal_key,
+            step=lambda s: tick(n - 1, s, current))
+        review: dict[str, Any] | None = None
         if result is not None and result["gap_code"] == "LLM_ERROR":
             out["llm_errors"] += 1
         checks: list[str] = []
@@ -1662,11 +1836,27 @@ def generate(db: CatalogDb, engine: Any, llm: Any, decisions: list[dict[str, Any
             if dropped:
                 checks.append(f"unused_parameters_dropped:{','.join(dropped)}")
             grounded = grounded_fields(spec, req)
-            if not grounded:
-                tested = sorted({p.field for p in _predicates(spec.condition)})
+            tested = sorted({p.field for p in _predicates(spec.condition)})
+            reasoning = can_reason(llm)
+            if not grounded and not reasoning:
                 raise Gap("RULE_SPEC_INVALID", f"the condition tests {tested}, which the requirement text does not "
                           f"mention ({GROUNDING_VERSION}); a rule on these fields would not test this obligation")
-            checks.append(f"condition_grounded:{','.join(grounded)}")
+            checks.append(f"condition_grounded:{','.join(grounded)}" if grounded else "condition_not_word_grounded")
+            if reasoning:
+                # an independent review of the finished rule by meaning: the deciding check, so wording the word
+                # lists do not know (other documents) can still produce a rule, and shared words alone cannot
+                tick(n - 1, "judge", current)
+                review = _cached_review(db, scope, rid, proposal_key, spec)
+                if review is None:
+                    try:
+                        review = judge(llm, req, spec, cap, grounded=bool(grounded))
+                    except LlmError as exc:
+                        raise Gap("LLM_ERROR", f"judge: {str(exc)[:280]}") from exc
+                    review["spec_digest"] = digest_of(spec.model_dump(mode="json"))
+                if review["verdict"] != "YES":
+                    raise Gap("RULE_SPEC_INVALID", f"review ({review['verdict']}): the rule does not test this "
+                              f"requirement - {review['text'][-500:]}")
+                checks.append("judged_by_model")
             resolution = resolve(spec, req=req, settings=settings)
             missing = [e["name"] for e in resolution if e["value"] is None]
             if missing:
@@ -1723,6 +1913,8 @@ def generate(db: CatalogDb, engine: Any, llm: Any, decisions: list[dict[str, Any
                                            proposal=proposal, decision_digest=proposal_key, job_id=job_id)
         except Gap as g:
             result = _gap(g.code, g.message, **g.extra)
+            if g.code == "LLM_ERROR" and g.message.startswith("judge:"):
+                out["llm_errors"] += 1  # the review call failed (proposal errors are counted above)
         except CatalogError as exc:
             result = _gap("RULE_COMPILATION_FAILED" if exc.code.startswith("RULE") else "POLICY_CONFLICT"
                           if exc.code in ("MAPPING_CONFLICT", "DUPLICATE_MAPPING") else "VALIDATION_FAILED",
@@ -1736,6 +1928,7 @@ def generate(db: CatalogDb, engine: Any, llm: Any, decisions: list[dict[str, Any
                       "rule_version": result.get("rule_version"), "spec_digest": (compiled or {}).get("spec_digest"),
                       "rego_digest": (compiled or {}).get("rego_digest"), "parameter_resolution": resolution,
                       "test_results": results or result.get("test_results") or [],
+                      **({"analysis": analysis} if analysis else {}), **({"review": review} if review else {}),
                       **{k: result[k] for k in ("forbidden", "fields", "parameters_missing", "conflicting_mapping_ids",
                                                 "replaced_mapping_ids") if k in result}}
         prior = db.one("SELECT id FROM rule_generation_decision WHERE organization_scope=? AND requirement_id=? AND "
@@ -1779,7 +1972,9 @@ def generate(db: CatalogDb, engine: Any, llm: Any, decisions: list[dict[str, Any
         tick(n, "done", current)
     if progress is not None:
         for stage, done in stage_counts.items():
-            progress(stage, completed=done, total=len(todo))
+            # the proposal stage keeps its requirement counter (done == total) so the closed step stays counted
+            extra = {"done": len(todo), "unit": "requirements"} if stage == "propose_missing_rules" else {}
+            progress(stage, completed=done, total=len(todo), **extra)
     out["counts"] = {
         "rule_generation_candidates": len(todo),
         "rule_proposals_created": stage_counts["propose_missing_rules"],

@@ -104,6 +104,11 @@ class EvidenceSupport(_In):
         default=None, max_length=20)  # informational (PAM tables the lookup reads)
     caveats: list[Annotated[str, StringConstraints(min_length=1, max_length=500)]] | None = Field(
         default=None, max_length=10)
+    # optional: what each field shows in this PAM, overriding OPM's defaults (regintel/data/field_meanings.json)
+    # for the rule-generation model; {"field": {"meaning": "...", "shows": "..."}}
+    field_meanings: dict[Annotated[str, StringConstraints(pattern=r"^[a-z][a-z0-9_]{0,63}$")],
+                         dict[Literal["meaning", "shows"], Annotated[str, StringConstraints(min_length=1, max_length=300)]]
+                         ] | None = Field(default=None, max_length=64)
 
     @model_validator(mode="after")
     def _lookup_needs_detail(self):
@@ -400,7 +405,13 @@ def declare_capabilities(db: CatalogDb, *, scope: str, actor: str, body: Collect
                                        **({"collection_status": e.collection_status,
                                            "schema_version": e.schema_version}
                                           if e.collection_status != "COLLECTED" else {}),
-                                       **({"caveats": e.caveats} if e.caveats else {})}
+                                       **({"caveats": e.caveats} if e.caveats else {}),
+                                       **({"field_meanings": e.field_meanings} if e.field_meanings else {})}
+            unknown_meant = sorted(set(e.field_meanings or {}) - set(e.supported_fields or []))
+            if unknown_meant:
+                raise CatalogError("UNKNOWN_EVIDENCE_FIELD", f"{e.evidence_type}: field_meanings for fields it does "
+                                   f"not declare {unknown_meant}", details={"evidence_type": e.evidence_type,
+                                                                           "fields": unknown_meant})
     collector = body.collector.model_dump()
     # declarations without the optional detail keep their earlier digest
     digest = "sha256:" + digest_of({"collector": collector, "evidence": evidence, **({"detail": detail} if detail else {})})

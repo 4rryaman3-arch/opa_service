@@ -214,6 +214,21 @@ class PrepareCatalog(Model):
     request_key: str = Field(min_length=8, max_length=100)
 
 
+class GenerateRules(Model):
+    """Rule generation only (DJANGO_CONTRACT §5.4): for requirements already published in the caller's scope,
+    existing-rule matching then propose / validate / compile / test / activate, without retrieving or re-extracting
+    documents. Same gates as prepare_catalog's auto_rule_generation; monitor with GET /jobs/{id}/progress."""
+
+    action: Literal['generate_rules']
+    requested_framework_ids: list[str] = Field(min_length=1, max_length=20)
+    tenant_id: str | None = Field(default=None, min_length=1, max_length=128, pattern=r'^[A-Za-z0-9._:-]+$')
+    auto_rule_generation: Literal[True] = True  # implied; lets check_rule_generation apply unchanged
+    llm_mapping: Literal[True] = True
+    auto_publish_validated_rules: bool = False
+    collector_capability_digest: str | None = Field(default=None, pattern=r'^sha256:[0-9a-f]{64}$')
+    request_key: str = Field(min_length=8, max_length=100)
+
+
 OPTIONAL_JOB_FIELDS = ('languages', 'screening')  # omitted from the stored payload when unset (stable dedup)
 DEFAULTED_JOB_FIELDS = {'tenant_id': None, 'llm_mapping': True, 'auto_rule_generation': False,
                         'auto_publish_validated_rules': False, 'collector_capability_digest': None}
@@ -789,11 +804,11 @@ def create_admin_app(settings: Settings | None = None, *, start_worker=True):
 
     @app.post(PREFIX+'/jobs',status_code=202)
     def submit(request: Request,
-               body: Annotated[Sync | Extract | Discover | PrepareCatalog, Field(discriminator='action')],
+               body: Annotated[Sync | Extract | Discover | PrepareCatalog | GenerateRules, Field(discriminator='action')],
                db=Depends(database), principal: Principal=Depends(authenticate)):
         # Per-action permission: the automated pipelines need their own engine-defined scope so that
         # holding catalog:operate alone never silently enables automated approval and publication.
-        required = automation.AUTOMATION_SCOPE if isinstance(body,PrepareCatalog) else 'catalog:operate'
+        required = automation.AUTOMATION_SCOPE if isinstance(body,(PrepareCatalog,GenerateRules)) else 'catalog:operate'
         if required not in principal.scopes:
             raise ServiceError(403,'FORBIDDEN',f"Credential lacks required scope '{required}'.")
         if isinstance(body,Discover):
@@ -806,6 +821,19 @@ def create_admin_app(settings: Settings | None = None, *, start_worker=True):
             if key in payload and payload[key]==default:
                 del payload[key]
         scope=request_scope(request,db,principal)
+        if isinstance(body,GenerateRules):
+            if scope is None:
+                raise ServiceError(422,'SCOPE_REQUIRED',f'generate_rules requires the {orgscope.HEADER} header.')
+            for fid in body.requested_framework_ids:
+                fw=db.one('SELECT organization_scope FROM regulatory_framework WHERE id=?',(fid,))
+                if fw is None or not orgscope.visible(fw,scope):
+                    raise ServiceError(404,'UNKNOWN_FRAMEWORK',f"Framework '{fid}' is not registered in this scope.")
+            if body.tenant_id is not None:
+                policy_scope(request,db,principal,body.tenant_id)
+            check_rule_generation(db,body,scope)
+            for implied in ('auto_rule_generation','llm_mapping'):
+                payload.pop(implied,None)
+            payload['organization_scope']=scope
         if isinstance(body,PrepareCatalog):
             if scope is None:
                 raise ServiceError(422,'SCOPE_REQUIRED',

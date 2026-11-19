@@ -382,6 +382,25 @@ class OpmClient:
             payload["collector_capability_digest"] = collector_capability_digest
         return self.catalog_admin_action("jobs", payload)
 
+    def generate_rules(self, *, framework_ids: list[str], request_key: str, tenant_id: str | None = None,
+                       auto_publish_validated_rules: bool = False,
+                       collector_capability_digest: str | None = None) -> dict[str, Any]:
+        """Submit a generate_rules job: rule generation only, for requirements already published in this
+        organization scope (no document retrieval or re-extraction). Monitor with :meth:`job_progress`
+        (``rule_generation`` shows the requirement, its sub-step analyse / write / validate / judge / compile /
+        test / activate, and the outcomes so far)."""
+        if not self.organization_scope:
+            raise OpmError("generate_rules requires organization_scope on the client", code="SCOPE_REQUIRED")
+        payload: dict[str, Any] = {"action": "generate_rules", "requested_framework_ids": framework_ids,
+                                   "request_key": request_key}
+        if tenant_id is not None:
+            payload["tenant_id"] = tenant_id
+        if auto_publish_validated_rules:
+            payload["auto_publish_validated_rules"] = True
+        if collector_capability_digest is not None:
+            payload["collector_capability_digest"] = collector_capability_digest
+        return self.catalog_admin_action("jobs", payload)
+
     def catalog_job(self, job_id: str) -> dict[str, Any]:
         """One job with status, started/finished timestamps, result and error."""
         body = self.catalog_admin_get(f"jobs/{job_id}")

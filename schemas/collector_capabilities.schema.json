@@ -116,6 +116,35 @@
           ],
           "default": null,
           "title": "Caveats"
+        },
+        "field_meanings": {
+          "anyOf": [
+            {
+              "maxProperties": 64,
+              "patternProperties": {
+                "^[a-z][a-z0-9_]{0,63}$": {
+                  "additionalProperties": {
+                    "maxLength": 300,
+                    "minLength": 1,
+                    "type": "string"
+                  },
+                  "propertyNames": {
+                    "enum": [
+                      "meaning",
+                      "shows"
+                    ]
+                  },
+                  "type": "object"
+                }
+              },
+              "type": "object"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Field Meanings"
         }
       },
       "required": [

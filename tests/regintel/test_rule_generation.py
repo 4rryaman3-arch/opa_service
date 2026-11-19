@@ -327,6 +327,124 @@ def test_lookup_available_evidence_is_validated_and_waits_then_activates_when_co
     assert spec_calls(model) == calls  # the stored proposal was re-checked, the model was not asked again
 
 
+class ReasoningLlm(s.FakeLlm):
+    """A fake model that also reasons in plain text (analyse, then judge), like OllamaClient.generate_text."""
+
+    def __init__(self, script, thinker):
+        super().__init__(script)
+        self.thinker = thinker
+        self.text_calls: list[tuple[str, str]] = []
+
+    def generate_text(self, system, prompt, *, max_tokens=400):
+        from regintel.llm import RawOutput
+        self.text_calls.append((system, prompt))
+        return RawOutput(self.thinker(system, prompt))
+
+
+def thinker(system, prompt):
+    if system == gr.SYSTEM_ANALYSE:
+        if Q["decline"] in prompt:
+            return "Obligation: appoint a responsible person. No record shows that.\nVERDICT: PERSON_JUDGES"
+        if Q["ticket"] in prompt:
+            assert "the incident or change ticket" in prompt  # the field's meaning reaches the model
+            return "A violating activation has no ticket.\nVERDICT: TESTABLE break_glass_event.ticket_reference"
+        return "Unclear which field applies."
+    assert system == gr.SYSTEM_JUDGE
+    if Q["idle"] in prompt:
+        return "The configured timeout is not the obligation's enforcement here.\nJUDGE: NO"
+    return "A missing ticket means the activation broke the obligation.\nJUDGE: YES"
+
+
+def test_model_analyses_then_writes_then_reviews_and_reuses_its_reasoning(gen):
+    env, ids, run, _submit, model, _digest, _store = gen
+    model.text_calls = []
+    model.generate_text = lambda system, prompt, *, max_tokens=400: ReasoningLlm.generate_text(
+        model, system, prompt, max_tokens=max_tokens)
+    model.thinker = thinker
+    go = run
+    d = by_req(go("gen-reason-1"))
+    decline = d[ids["decline"]]
+    assert decline["outcome"] == "MANUAL_ASSESSMENT_REQUIRED" and "analysis" in decline["message"]
+    written = [p for sy, p in model.calls if sy.startswith(gr.SYSTEM_RULESPEC)]
+    assert not any(Q["decline"] in p for p in written)  # a person-judged requirement is never written as a rule
+    t = d[ids["ticket"]]
+    assert t["outcome"] == gr.GENERATED_RULE_ACTIVATED, t
+    row = env.db.one("SELECT llm_validation FROM rule_generation_decision WHERE id=?", (t["decision_id"],))
+    v = row["llm_validation"]
+    assert v["analysis"]["verdict"] == "TESTABLE" and v["review"]["verdict"] == "YES"
+    assert "judged_by_model" in v["checks"]
+    assert any(Q["ticket"] in p and "your_analysis" in p for p in written)  # the writing step sees the analysis
+    idle = d[ids["idle"]]
+    assert idle["outcome"] == "RULE_SPEC_INVALID" and "review (NO)" in idle["message"], idle
+    # an identical retry re-checks the stored reasoning: no new plain-text call
+    calls = len(model.text_calls)
+    again = by_req(go("gen-reason-2"))
+    assert len(model.text_calls) == calls
+    assert again[ids["ticket"]]["outcome"] == gr.GENERATED_RULE_ACTIVATED
+
+
+def test_generate_rules_job_runs_generation_only_and_reports_progress(gen):
+    env, ids, _run, _submit, model, digest, _store = gen
+    from regintel import __main__ as cli
+    extracted = env.db.scalar("SELECT COUNT(*) FROM regulatory_requirement")
+    with pytest.MonkeyPatch.context() as m:
+        m.setattr(cli, "_llm", lambda: nullcontext(model))
+        r = env.admin.post(ADMIN + "/jobs", headers=env.h(SCOPE_A), json={
+            "action": "generate_rules", "requested_framework_ids": [FW], "tenant_id": "acme",
+            "auto_publish_validated_rules": True, "collector_capability_digest": digest,
+            "request_key": "gen-only-job-1"})
+        assert r.status_code == 202, r.text
+        env.run_all()
+    jid = r.json()["job"]["id"]
+    job = env.admin.get(ADMIN + f"/jobs/{jid}", headers=env.h(SCOPE_A)).json()["job"]
+    assert job["status"] in ("SUCCEEDED", "PARTIAL"), job["error"]
+    d = by_req(job["result"])
+    assert d[ids["ticket"]]["outcome"] == gr.GENERATED_RULE_ACTIVATED
+    assert env.db.scalar("SELECT COUNT(*) FROM regulatory_requirement") == extracted  # nothing re-extracted
+    p = env.admin.get(ADMIN + f"/jobs/{jid}/progress", headers=env.h(SCOPE_A)).json()["progress"]
+    assert p["action"] == "generate_rules" and p["eta"]["percent"] == 100.0
+    steps = {s["stage"]: s for s in p["completed_steps"]}
+    assert steps["llm_mapping"]["unit"] == "requirements" and steps["llm_mapping"]["total"] >= len(Q)
+    assert steps["propose_missing_rules"]["done"] == steps["propose_missing_rules"]["total"] > 0
+    # the same gates as prepare_catalog: activation needs the pinned digest
+    r = env.admin.post(ADMIN + "/jobs", headers=env.h(SCOPE_A), json={
+        "action": "generate_rules", "requested_framework_ids": [FW], "tenant_id": "acme",
+        "auto_publish_validated_rules": True, "request_key": "gen-only-job-2"})
+    assert r.status_code == 422 and r.json()["error"]["code"] == "CAPABILITY_DIGEST_REQUIRED"
+
+
+def test_a_not_testable_analysis_that_names_a_test_field_is_written_and_judged():
+    cap = {"evidence_detail": {"access_authorization": {
+        "supported_fields": ["access_id", "user_id", "accessed_at", "entitlement_status"]}}}
+
+    class _M:
+        def __init__(self, text):
+            self.text = text
+
+        def generate_text(self, *_a, **_k):
+            from regintel.llm import RawOutput
+            return RawOutput(self.text)
+    req = {"id": 1, "original_text": "Authorize access based on a valid access authorization."}
+    contradicts = "A compliant record shows `entitlement_status = AUTHORIZED`.\nVERDICT: NOT_TESTABLE"
+    assert gr.analyse(_M(contradicts), req, cap, ["access_authorization"])["verdict"] == "UNCLEAR"
+    as_worded = ("A compliant record would show `entitlement_status` as `AUTHORIZED` alongside `access_id`.\n"
+                 "VERDICT: NOT_TESTABLE")  # AC-2 i, gemma3:4b, 2026-11-20
+    assert gr.analyse(_M(as_worded), req, cap, ["access_authorization"])["verdict"] == "UNCLEAR"
+    declines = "This needs a documented procedure; no record shows it.\nVERDICT: NOT_TESTABLE"
+    assert gr.analyse(_M(declines), req, cap, ["access_authorization"])["verdict"] == "NOT_TESTABLE"
+
+
+def test_field_meanings_cover_every_field_and_a_collector_can_override_them():
+    from app.models.evidence import CUSTOM_RULE_FIELDS
+    for etype, fields in CUSTOM_RULE_FIELDS.items():
+        missing = sorted(f for f in fields if f not in ("record_id", "scope_tags")
+                         and not gr.FIELD_MEANINGS.get(etype, {}).get(f, {}).get("meaning"))
+        assert not missing, (etype, missing)
+    cap = {"evidence_detail": {"privileged_account": {"field_meanings": {"enabled": {"meaning": "may log in today"}}}}}
+    assert gr.field_meaning(cap, "privileged_account", "enabled") == {"meaning": "may log in today"}
+    assert "dormant" in gr.field_meaning({}, "privileged_account", "enabled")["shows"]
+
+
 def test_screen_offers_only_evidence_types_the_requirement_speaks_to():
     detail = {"assessment_modes": ["EVENT_HISTORY"]}
     cap = {"source": "HANDSHAKE", "evidence": {"privileged_account": "1.0"}, "evidence_detail": {

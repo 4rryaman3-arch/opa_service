@@ -393,9 +393,10 @@ def _live_mappings(db: CatalogDb, rid: int, scope: str) -> list[dict[str, Any]]:
 
 
 def assign(db: CatalogDb, engine: Any, llm: Any, requirement_ids: list[int], *, scope: str, tenant: str | None,
-           actor: str, job_id: str | None = None) -> dict[str, Any]:
+           actor: str, job_id: str | None = None, progress: Any = None) -> dict[str, Any]:
     """Run the LLM-assisted assignment for published requirements visible in ``scope``. Drafts and reviews
-    validated mappings (decision_origin AUTOMATED_LLM); returns mapping ids for scoped publication."""
+    validated mappings (decision_origin AUTOMATED_LLM); returns mapping ids for scoped publication.
+    ``progress(stage, **info)`` gets a counted 'llm_mapping' marker per requirement (detail marker)."""
     from .automation import engine_actor
 
     me = engine_actor(actor)
@@ -411,7 +412,11 @@ def assign(db: CatalogDb, engine: Any, llm: Any, requirement_ids: list[int], *, 
                            "min_confidence": min_confidence(), "llm_errors": 0}
     indexes: dict[int, Any] = {}
     cache: dict[int, Any] = {}
-    for rid in sorted(set(requirement_ids)):
+    ordered = sorted(set(requirement_ids))
+    for i, rid in enumerate(ordered):
+        if progress is not None:
+            progress("llm_mapping", done=i, total=len(ordered), unit="requirements", current={"requirement_id": rid},
+                     detail=True)
         req = db.one("SELECT * FROM regulatory_requirement WHERE id=?", (rid,))
         if req is None or req["status"] != "APPROVED" or req["published_seq"] is None \
                 or req["organization_scope"] not in (None, scope):

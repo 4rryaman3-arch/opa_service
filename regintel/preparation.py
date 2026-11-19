@@ -332,7 +332,8 @@ def prepare_catalog(db: CatalogDb, *, actor: str, scope: str, mode: str, jurisdi
     if llm_mapping and engine is not None and candidates:
         from . import catalog, llm_mapping as lm
         report("llm_mapping", candidates=len(candidates))
-        assigned = lm.assign(db, engine, llm, candidates, scope=scope, tenant=tenant_id, actor=actor, job_id=job_id)
+        assigned = lm.assign(db, engine, llm, candidates, scope=scope, tenant=tenant_id, actor=actor, job_id=job_id,
+                             progress=report)
         llm_ids = assigned["mapping_ids"]
         if llm_ids:
             assigned["publication"] = catalog.publish_scoped(db, automation.engine_actor(actor), [], llm_ids,
@@ -421,4 +422,60 @@ def prepare_catalog(db: CatalogDb, *, actor: str, scope: str, mode: str, jurisdi
         if result["status"] == "FAILED":
             result["error"] = "; ".join(f"{e['framework_id']}: {e['outcome']}" for e in failed)[:400]
         result["outcome"] = "PREPARED" if published_requirements or new_ids or llm_ids else "NOTHING_NEW"
+    return result
+
+
+def generate_rules(db: CatalogDb, *, actor: str, scope: str, framework_ids: list[str], llm: LocalLlm, engine: Any,
+                   tenant_id: str | None, publish: bool, collector_capability_digest: str | None,
+                   job_id: str | None = None, progress: Any = None, bundle_dir: Path | str | None = None,
+                   rule_store_path: Path | str | None = None) -> dict[str, Any]:
+    """Rule generation only, for requirements already published in ``scope``: existing-rule matching (stored
+    decisions are reused) then propose / validate / compile / test / activate, the same calls prepare_catalog
+    makes after extraction, without retrieving, extracting or re-validating any document. Progress uses the same
+    markers (llm_mapping counted per requirement, propose_missing_rules with sub-step and outcomes)."""
+    from . import catalog, generated_rules as gr, llm_mapping as lm
+
+    result: dict[str, Any] = {"status": "SUCCESS", "framework_ids": framework_ids, "stages": [], "llm_errors": 0,
+                              "organization_scope": scope, "tenant_id": tenant_id}
+
+    def report(stage: str, **info: Any) -> None:
+        info = {"orchestration_stage": ORCHESTRATION_STAGE.get(stage, stage), **info}
+        if not info.pop("detail", False):
+            result["stages"].append({"stage": stage, "job_id": job_id, "at": now_iso(), **info})
+        if progress is not None:
+            progress(stage, **info)
+
+    if engine is None:
+        raise CatalogError("BUNDLE_UNAVAILABLE", "rule generation needs the policy bundle (existing-rule matching)")
+    marks = ",".join("?" * len(framework_ids))
+    candidates = [r["id"] for r in db.q(
+        f"SELECT id FROM regulatory_requirement WHERE framework_id IN ({marks}) AND status='APPROVED' AND "
+        "published_seq IS NOT NULL AND (organization_scope IS NULL OR organization_scope=?) ORDER BY id",
+        [*framework_ids, scope])]
+    report("resolve", requirements=len(candidates))
+    report("llm_mapping", candidates=len(candidates))
+    assigned = lm.assign(db, engine, llm, candidates, scope=scope, tenant=tenant_id, actor=actor, job_id=job_id,
+                         progress=report)
+    if assigned["mapping_ids"]:
+        assigned["publication"] = catalog.publish_scoped(db, automation.engine_actor(actor), [],
+                                                         assigned["mapping_ids"], organization_scope=scope)
+    result["llm_errors"] += assigned.get("llm_errors", 0)
+    report("llm_mapping_done", **assigned["counts"])
+    generated = gr.generate(db, engine, llm, assigned["decisions"], scope=scope, tenant=tenant_id, actor=actor,
+                            job_id=job_id, publish=publish, pinned_digest=collector_capability_digest,
+                            bundle_dir=None if bundle_dir is None else Path(bundle_dir),
+                            store_path=None if rule_store_path is None else Path(rule_store_path), progress=report)
+    # only mappings that are still approved: one withdrawn while the job ran must not block the others
+    live = [m for m in generated["mapping_ids"] if db.scalar(
+        "SELECT status FROM framework_control_mapping WHERE id=?", (m,)) == "APPROVED"]
+    if live:
+        generated["publication"] = catalog.publish_scoped(db, automation.engine_actor(actor), [], live,
+                                                          organization_scope=scope)
+    report("publish_mappings", mappings=len(live))
+    result["llm_errors"] += generated["llm_errors"]
+    result.update(existing_rule_matching=assigned["counts"], counts=generated["counts"],
+                  rule_generation_decisions=generated["decisions"], mapping_ids=live,
+                  prompt_version=generated["prompt_version"], model=generated["model"])
+    report("complete", **generated["counts"])
+    result["status"] = "PARTIAL" if result["llm_errors"] else "SUCCESS"
     return result

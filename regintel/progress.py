@@ -26,7 +26,7 @@ NO_REFERENCE_RATE = "NO_REFERENCE_RATE"      # the next stage's size is projecte
 FINAL_STAGES = "FINAL_STAGES"                # only short, uncounted stages remain (publish, mappings, readiness)
 ETA_REASONS = (QUEUED, NOT_COUNTED, INSUFFICIENT_SAMPLES, MORE_WORK_UNKNOWN, NO_REFERENCE_RATE, FINAL_STAGES)
 
-COUNTED_STAGES = ("extract", "candidate_review", "propose_missing_rules")
+COUNTED_STAGES = ("extract", "candidate_review", "llm_mapping", "propose_missing_rules")
 FINAL = ("publish", "pipeline", "mappings", "readiness")
 TERMINAL = ("SUCCEEDED", "PARTIAL", "FAILED", "INTERRUPTED")
 
@@ -203,6 +203,12 @@ def _job_eta(job, marker, step_eta, step, rates) -> dict[str, Any]:
         return {"seconds": _round(step_eta), "basis": step["basis"]}
     if not last_framework:
         return {"reason": MORE_WORK_UNKNOWN}
+    if stage == "llm_mapping":
+        # existing-rule matching; rule generation may follow with its own (not yet known) size
+        payload = job.get("payload") or {}
+        if action == "generate_rules" or payload.get("auto_rule_generation"):
+            return {"reason": MORE_WORK_UNKNOWN}
+        return {"seconds": _round(step_eta), "basis": step["basis"]}
     if stage == "propose_missing_rules":
         # rule generation is the last model-bound stage; mapping-gap and readiness recompute take seconds
         return {"seconds": _round(step_eta), "basis": step["basis"]}

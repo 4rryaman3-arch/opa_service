@@ -39,6 +39,9 @@ class LocalLlm(Protocol):
 
     def generate_raw(self, system: str, prompt: str, schema: dict[str, Any]) -> "RawOutput": ...
 
+    # optional: plain-text reasoning (rule generation uses it when present)
+    # def generate_text(self, system: str, prompt: str, *, max_tokens: int = 400) -> "RawOutput": ...
+
 
 @dataclass(frozen=True)
 class RawOutput:
@@ -153,6 +156,25 @@ class OllamaClient:
             status = self.gpu_status().get(self.model) or {}
             if not status.get("size_vram"):
                 raise LlmError("model is not loaded on the GPU (size_vram is 0); refusing CPU-only inference")
+        content = (data.get("message") or {}).get("content")
+        if not isinstance(content, str):
+            raise LlmError("local LLM returned no message content")
+        return RawOutput(content, truncated=data.get("done") is False or data.get("done_reason") == "length")
+
+    def generate_text(self, system: str, prompt: str, *, max_tokens: int = 400) -> RawOutput:
+        """One unconstrained call (no JSON grammar) for short reasoning: small models reason far worse while
+        decoding under a grammar, so the rule generator thinks in plain text first and writes JSON second."""
+        body = {
+            "model": self.model, "stream": False, "keep_alive": self.keep_alive,
+            "options": {"temperature": 0, "seed": 0, "num_ctx": self.num_ctx,
+                        "num_predict": min(self.num_predict, max_tokens)},
+            "messages": [{"role": "system", "content": system}, {"role": "user", "content": prompt}],
+        }
+        data = self._call("POST", "/api/chat", json=body)
+        used = int(data.get("prompt_eval_count") or 0) + int(data.get("eval_count") or 0)
+        if used >= self.num_ctx:
+            raise LlmError(f"prompt and output filled the {self.num_ctx}-token context window; the input was "
+                           "truncated. Raise OPM_REGINTEL_LLM_NUM_CTX or shorten the prompt")
         content = (data.get("message") or {}).get("content")
         if not isinstance(content, str):
             raise LlmError("local LLM returned no message content")
