@@ -315,6 +315,28 @@
       "caveats": [
         "Maps performed_at, activity, performed_from, performer_id, and affected_id/account_id; outcome is derivable for login/access/rotation activity types."
       ]
+    },
+    {
+      "evidence_type": "policy_exception",
+      "schema_version": "1.0",
+      "collection_status": "LOOKUP_AVAILABLE",
+      "assessment_modes": ["EVENT_HISTORY"],
+      "supported_fields": [
+        "record_id",
+        "scope_tags",
+        "exception_id",
+        "rule_id",
+        "status",
+        "approved_at",
+        "expires_at",
+        "last_used_at"
+      ],
+      "source_models": [
+        "iga.SODException"
+      ],
+      "caveats": [
+        "Maps iga.SODException (policy.code, approved_time, valid_to, is_active); covers SoD policy exceptions."
+      ]
     }
   ],
   "settings_sources": {
