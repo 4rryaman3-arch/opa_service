@@ -465,6 +465,13 @@ def test_audit_records_do_not_ground_recording_fields():
     assert gr.grounded_fields(rec, {"original_text": au7}) == []
     au14 = "Provide the capability to [Selection (one or more): record; view; hear; log] the content of a session."
     assert gr.grounded_fields(rec, {"original_text": au14}) == ["recording_status"]
+    assert gr.grounded_fields(rec, {"original_text": "Capture comprehensive session recordings."}) == ["recording_status"]
+    ac5 = "Identify and document duties of individuals requiring separation; define access authorizations."
+    assert gr.grounded_fields(auth_spec := gr.RuleSpec.model_validate(_spec(
+        1, evidence_type="access_authorization", subject_field="access_id",
+        population={"type": "ORGANIZATION_SUPPORTED_ENTITIES", "period_field": "accessed_at", "where": []},
+        condition={"field": "entitlement_status", "operator": "equals", "value": "AUTHORIZED"})),
+        {"original_text": ac5}) == [] and auth_spec
     auth = gr.RuleSpec.model_validate(_spec(1, evidence_type="access_authorization", subject_field="access_id",
                                             population={"type": "ORGANIZATION_SUPPORTED_ENTITIES",
                                                         "period_field": "accessed_at", "where": []},

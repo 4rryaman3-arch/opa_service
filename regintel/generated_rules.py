@@ -1038,7 +1038,10 @@ GROUNDING_VERSION = "rule-grounding-v3"
 # ("Enforce authorized access to the corresponding private key" in IA-5(2) grounded an entitlement-status rule)
 OFF_SUBJECT: dict[str, tuple[str, ...]] = {
     # IA-5(16) "issuance of authenticators ... with authorization by" grounded the same rule
-    "access_authorization": (r"private key", r"cryptograph", r"pki\b", r"certificat", r"issuance of"),
+    # AC-5 a "duties of individuals requiring separation" grounded it twice: an entitlement status says nothing about
+    # whether conflicting duties are held by different people
+    "access_authorization": (r"private key", r"cryptograph", r"pki\b", r"certificat", r"issuance of",
+                             r"separation", r"segregation"),
 }
 EVIDENCE_KEYWORDS: dict[str, tuple[str, ...]] = {
     "privileged_session": ("session", "record", "playback", "shadow"),
@@ -1067,7 +1070,7 @@ EVIDENCE_KEYWORDS: dict[str, tuple[str, ...]] = {
 # about log content and grounded a session-recording rule under v1).
 # v3: the bare noun "record" no longer counts either ("audit record reduction" in AU-7 grounded the session-recording
 # rule under v2); "recording"/"recorded", or "record" as a verb or a list item ("[...: record; view; ...]"), still do.
-RECORDING = r"record(?:ing|ed)\b|record(?=[;,\]]| (?:the|all|and|privileged|user|session))"
+RECORDING = r"record(?:ings?|ed)\b|record(?=[;,\]]| (?:the|all|and|privileged|user|session))"
 FIELD_TERMS: dict[str, dict[str, tuple[str, ...]]] = {
     "privileged_session": {"recording_status": (RECORDING,), "recording_reference": (RECORDING,),
                            "recording_required": (RECORDING,),
