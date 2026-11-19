@@ -26,7 +26,7 @@ NO_REFERENCE_RATE = "NO_REFERENCE_RATE"      # the next stage's size is projecte
 FINAL_STAGES = "FINAL_STAGES"                # only short, uncounted stages remain (publish, mappings, readiness)
 ETA_REASONS = (QUEUED, NOT_COUNTED, INSUFFICIENT_SAMPLES, MORE_WORK_UNKNOWN, NO_REFERENCE_RATE, FINAL_STAGES)
 
-COUNTED_STAGES = ("extract", "candidate_review")
+COUNTED_STAGES = ("extract", "candidate_review", "propose_missing_rules")
 FINAL = ("publish", "pipeline", "mappings", "readiness")
 TERMINAL = ("SUCCEEDED", "PARTIAL", "FAILED", "INTERRUPTED")
 
@@ -138,6 +138,12 @@ def estimate(job: dict[str, Any], *, now: datetime | None = None, queue_position
         "step": None,
         "eta": {"seconds": None, "at": None, "scope": "job", "basis": None, "reason": None, "percent": None},
         "completed_steps": [_public_step(s) for s in timing.get("history") or []],
+        "orchestration_stage": marker.get("orchestration_stage"),
+        # rule generation (DJANGO_CONTRACT §5.4): the requirement being worked on, its sub-step, outcomes so far
+        "rule_generation": ({k: marker.get(k) for k in ("substep", "current", "outcomes", "rules_activated",
+                                                         "rules_validated", "seconds_per_requirement", "recent")}
+                            | {"done": marker.get("done"), "total": marker.get("total")}
+                            if marker.get("stage") == "propose_missing_rules" else None),
     }
     if status in TERMINAL:
         out["eta"].update(seconds=0, at=job.get("finished_at"), percent=100.0, basis="finished")
@@ -197,6 +203,9 @@ def _job_eta(job, marker, step_eta, step, rates) -> dict[str, Any]:
         return {"seconds": _round(step_eta), "basis": step["basis"]}
     if not last_framework:
         return {"reason": MORE_WORK_UNKNOWN}
+    if stage == "propose_missing_rules":
+        # rule generation is the last model-bound stage; mapping-gap and readiness recompute take seconds
+        return {"seconds": _round(step_eta), "basis": step["basis"]}
     if stage == "candidate_review":
         # publish / mappings / readiness follow and are not counted (seconds, not minutes)
         return {"seconds": _round(step_eta), "basis": step["basis"]}

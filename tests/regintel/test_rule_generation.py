@@ -80,7 +80,7 @@ def designer(system, prompt):
         ctx = json.loads(prompt)
         return {"requirement_id": ctx["requirement_id"], "decision": "NO_MAP", "confidence": 0.9,
                 "rationale": "No candidate rule tests what this requirement mandates.", "limitations": []}
-    if system != gr.SYSTEM_RULESPEC:
+    if not system.startswith(gr.SYSTEM_RULESPEC):  # the worked example is appended to the system prompt
         return {"requirements": []}
     ctx = json.loads(prompt)
     rid, text = ctx["requirement_id"], ctx["requirement_text"]
@@ -384,6 +384,44 @@ def test_valid_nested_proposals_are_not_flagged():
                       "rule_spec": _spec(1, **IDLE)})
     assert gr.forbidden_content(raw) == []
     assert "EXECUTABLE_CODE" in gr.forbidden_content("package x\nallow := true")
+
+
+def test_condition_must_test_what_the_requirement_says():
+    idle = gr.RuleSpec.model_validate(_spec(1, **IDLE))
+    assert gr.grounded_fields(idle, {"original_text": Q["idle"]}) == ["idle_timeout_enabled", "idle_timeout_minutes"]
+    # synthetic stand-in for the live failure: an account-attribute obligation "tested" by the enabled flag
+    enabled = gr.RuleSpec.model_validate(_spec(1, evidence_type="privileged_account", subject_field="account_id",
+                                               population={"type": "ORGANIZATION_SUPPORTED_ENTITIES",
+                                                           "period_field": "created_at", "where": []},
+                                               condition={"field": "enabled", "operator": "equals", "value": True}))
+    assert gr.grounded_fields(enabled, {"original_text": "Specify the authorized users of each account."}) == []
+    assert gr.grounded_fields(enabled, {"original_text": "Disable accounts of departed users."}) == ["enabled"]
+
+
+def test_unused_parameters_are_dropped_without_changing_the_condition():
+    spec = gr.RuleSpec.model_validate(_spec(1, parameters={"unused_minutes": {"type": "integer", "unit": "minutes"}}))
+    out, dropped = gr.drop_unused_parameters(spec)
+    assert dropped == ["unused_minutes"] and out.parameters == {} and out.condition == spec.condition
+    used = gr.RuleSpec.model_validate(_spec(1, **IDLE))
+    assert gr.drop_unused_parameters(used) == (used, [])
+
+
+def test_trailing_model_output_after_the_first_object_is_ignored():
+    # live gemma3:4b behaviour: one valid object, then a markdown repeat and prose until the output limit
+    first = {"requirement_id": 7, "decision": "NO_RULE", "confidence": 0.8, "rationale": "not testable"}
+    raw = json.dumps(first) + "\n```json\n{\"requirement_id\": 7}}\n```\nThe response is valid.\n" * 3
+    proposal, gap = gr._parse(raw, truncated=True)
+    assert gap is None and proposal["decision"] == "NO_RULE"
+    # forbidden content inside the object that would be used is still caught
+    bad = dict(first, rationale="use {{ input.user }} here")
+    assert gr._parse(json.dumps(bad) + "\nmore", truncated=False)[1]["gap_code"] == "RULE_SPEC_INVALID"
+    # a decline's filler rule_spec is ignored, not validated
+    filler = dict(first, rule_spec={"description": "No rule available", "assessment_mode": ["EVENT_HISTORY"]})
+    assert gr._parse(json.dumps(filler), truncated=False)[0]["decision"] == "NO_RULE"
+    assert gr._parse(json.dumps(dict(filler, decision="PROPOSE")), truncated=False)[1]["gap_code"] == \
+        "RULE_SPEC_INVALID"
+    # an object cut off by the output limit is still rejected as truncated
+    assert gr._parse(json.dumps(first)[:-5], truncated=True)[1]["gap_code"] == "LLM_OUTPUT_INVALID"
 
 
 def test_generated_cases_cover_boundaries_against_real_opa():

@@ -691,6 +691,23 @@ raw output. A retry with identical inputs re-checks the stored output without ca
   `validate_rule_specs`, `compile_generated_rules`, `test_generated_rules`, `publish_generated_rules`,
   `publish_mappings`, `recompute_readiness`, `complete`. Generation stages report `completed` and `total`. Result
   stages also carry `job_id` and `at`.
+- While rules are generated (`stage` `propose_missing_rules`), `GET /admin/jobs/{id}/progress` is a counted step:
+  `step` (`done`/`total`, `unit` `requirements`, `seconds_per_unit`, `eta_seconds`) and a job `eta`, as for
+  `candidate_review`. It also returns `orchestration_stage` and `rule_generation`:
+  `{done, total, substep, current{requirement_id, section_ref, control_id, clause}, outcomes{code: n},
+  rules_activated, rules_validated, seconds_per_requirement, recent[]}`. `substep` is `propose` (model call),
+  `validate`, `compile`, `test`, `activate` or `done`; `outcomes` uses the `orchestration_outcome` codes. `recent[]`
+  holds the last 5 decisions: `{requirement_id, section_ref, control_id, clause, outcome, rule_id, reason,
+  model_called}`. `reason` says why no rule was generated (e.g. "declared parameters not used by the condition").
+  `rule_generation` is null in every other stage. These per-requirement markers are not added to `stages[]`.
+- Generation (prompt `rule-spec-v3`) only asks the model about a requirement whose wording relates to a declared
+  evidence type with a collected non-null timestamp (screen `rule-screen-v1`). Any other requirement is
+  `COLLECTOR_MISSING` with `model_called: false`. The model decodes against a per-requirement grammar whose
+  identifiers (PAM controls, evidence types, fields, settings) are enums of what exists. Declared parameters the
+  condition never uses are dropped and recorded under `checks`. A condition that tests only the record's own id or
+  period is rejected (`RULE_SPEC_INVALID`). The condition must also test at least one field whose meaning the
+  requirement text states (gate `rule-grounding-v2`; e.g. `enabled` needs "enable"/"disable", `recording_status`
+  needs "record"); otherwise `RULE_SPEC_INVALID` with the tested fields in `reason`.
 
 **Orchestration outcome per requirement** (`orchestration_outcome`):
 `EXISTING_RULE_ASSIGNED`, `GENERATED_RULE_ACTIVATED`, `GENERATED_RULE_VALIDATED`, `PARAMETER_SOURCE_MISSING`,

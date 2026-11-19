@@ -179,6 +179,21 @@ class AuditLogCoverageRecord(BaseRecord):
         return self
 
 
+class AuditEventRecord(BaseRecord):
+    """One audit log entry, reduced to identifiers. It records which elements the entry carries (NIST AU-3 style
+    content: type, time, location, source, outcome, identities), never message text. Null means the source log
+    entry did not contain that element."""
+
+    event_id: Identifier
+    occurred_at: UtcDatetime
+    event_type: Identifier | None = None
+    location_id: Identifier | None = None     # system/component where the event occurred
+    source_id: Identifier | None = None       # originating host, address or client (as an identifier)
+    outcome: Literal["SUCCESS", "FAILURE", "DENIED", "ERROR"] | None = None
+    actor_id: Identifier | None = None        # individual or subject that performed the action
+    target_id: Identifier | None = None       # object or entity acted upon
+
+
 MfaMethod = Literal["totp", "push", "fido2", "smart_card", "hardware_token", "sms", "email_otp"]
 MFA_METHODS: tuple[str, ...] = ("totp", "push", "fido2", "smart_card", "hardware_token", "sms", "email_otp")
 
@@ -249,6 +264,7 @@ EVIDENCE_MODELS: dict[str, type[BaseRecord]] = {
     "policy_exception": PolicyExceptionRecord,
     "access_review": AccessReviewRecord,
     "audit_log_coverage": AuditLogCoverageRecord,
+    "audit_event": AuditEventRecord,
     "mfa_configuration": MfaConfigurationRecord,
     "privileged_access_authentication": PrivilegedAccessAuthenticationRecord,
     "session_policy_configuration": SessionPolicyConfigurationRecord,
@@ -269,6 +285,7 @@ EvidenceType = Literal[
     "policy_exception",
     "access_review",
     "audit_log_coverage",
+    "audit_event",
     "mfa_configuration",
     "privileged_access_authentication",
     "session_policy_configuration",
@@ -395,6 +412,17 @@ CUSTOM_RULE_FIELDS: dict[str, dict[str, dict]] = {
         "received_event_count": _f("integer"),
         "max_gap_seconds": _f("integer"),
         "integrity_verified": _f("boolean"),
+    },
+    "audit_event": {
+        **_COMMON,
+        "event_id": _f("string"),
+        "occurred_at": _f("datetime"),
+        "event_type": _f("string", True),
+        "location_id": _f("string", True),
+        "source_id": _f("string", True),
+        "outcome": _f("enum", True, ("SUCCESS", "FAILURE", "DENIED", "ERROR")),
+        "actor_id": _f("string", True),
+        "target_id": _f("string", True),
     },
     "mfa_configuration": {
         **_COMMON,

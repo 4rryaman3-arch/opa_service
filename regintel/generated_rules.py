@@ -36,7 +36,7 @@ import sqlite3
 import subprocess
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
-from typing import Annotated, Any, Literal
+from typing import Annotated, Any, Literal, get_args
 
 from pydantic import BaseModel, ConfigDict, Field, StringConstraints, ValidationError, model_validator
 
@@ -53,7 +53,8 @@ from .llm import LlmError
 SPEC_VERSION = "1.0"
 COMPILER_VERSION = "pam-rulespec-compiler-1.0"
 # v2: compact context and schema (v1 overflowed a 4096-token window, so the model never saw the requirement)
-PROMPT_VERSION = "rule-spec-v2"
+# v3: per-requirement decoding grammar (enums, no $ref/patterns), evidence screen, one synthetic example
+PROMPT_VERSION = "rule-spec-v3"
 POLICY_VERSION = "rule-gen-v1"
 FLAG_GENERATE = "REGINTEL_AUTO_RULE_GENERATION"
 FLAG_PUBLISH = "REGINTEL_AUTO_PUBLISH_GENERATED_RULES"
@@ -262,6 +263,16 @@ def field_unit(name: str) -> str | None:
     return None
 
 
+def drop_unused_parameters(spec: RuleSpec) -> tuple[RuleSpec, list[str]]:
+    """Remove declared parameters that no condition predicate references. An unreferenced parameter cannot change
+    what the rule tests, so removing it is semantics-preserving; small models often declare one anyway."""
+    used = {p.parameter for p in _predicates(spec.condition) if p.parameter is not None}
+    dropped = sorted(set(spec.parameters) - used)
+    if not dropped:
+        return spec, []
+    return spec.model_copy(update={"parameters": {k: v for k, v in spec.parameters.items() if k in used}}), dropped
+
+
 def _predicates(node: Any):
     if isinstance(node, Predicate):
         yield node
@@ -328,6 +339,12 @@ def validate(spec: RuleSpec, *, req: dict[str, Any], cap: dict[str, Any], db: Ca
         if pred.operator == "contains":
             raise Gap("RULE_SPEC_INVALID", "'contains' is allowed only in population filters")
         _check_predicate(pred, catalogue, spec, referenced)
+    # a condition only on the record's own identity/period (e.g. "account_id exists") is always true: it would
+    # report PASS for everything and claim coverage it does not test
+    identity = {spec.subject_field, spec.population.period_field, "record_id"}
+    if not any(p.field not in identity for p in _predicates(spec.condition)):
+        raise Gap("RULE_SPEC_INVALID", "the condition tests only the record's identity or period fields; it "
+                  "would pass every record")
     unused = sorted(set(spec.parameters) - referenced)
     if unused:
         raise Gap("RULE_SPEC_INVALID", f"declared parameters not used by the condition: {unused}")
@@ -930,7 +947,8 @@ SYSTEM_RULESPEC = (
     "confirmed settings; bind policy_control when a listed setting fits). 'condition' states what every in-scope "
     "record must satisfy. coverage is always PARTIAL; list what the test does not establish under limitations. "
     "decision NO_RULE when the listed evidence cannot test the obligation; MANUAL_ASSESSMENT when a person must "
-    "judge it.")
+    "judge it. Declare a parameter only if the condition references it; the condition must test a field that shows "
+    "compliance (a status, a flag or a timestamp age), not merely that the record exists.")
 
 
 def _context(db: CatalogDb, req: dict[str, Any], ref: dict[str, Any], cap: dict[str, Any]) -> str:
@@ -975,6 +993,190 @@ def _prompt_schema() -> dict[str, Any]:
     return strip(Proposal.model_json_schema())
 
 
+# Which requirement wording an evidence type can speak to (screen rule-screen-v1). A requirement is sent to the
+# model only when it relates to at least one declared evidence type; others are COLLECTOR_MISSING without a call.
+# Evidence types without an entry are always considered.
+SCREEN_VERSION = "rule-screen-v1"
+GROUNDING_VERSION = "rule-grounding-v2"
+EVIDENCE_KEYWORDS: dict[str, tuple[str, ...]] = {
+    "privileged_session": ("session", "record", "playback", "shadow"),
+    "privileged_account": ("account", "inactiv", "dormant", "disable"),
+    "credential_rotation": ("authenticator", "password", "credential", "rotat", "refresh"),
+    "audit_event": ("audit record", "audit log", "event"),
+}
+
+
+# What a tested field means, as words the requirement must use for a rule on that field to test it (grounding
+# gate rule-grounding-v2). A field without an entry cannot ground a generated rule. Each term is a regular
+# expression matched at a word start in the lower-case requirement text.
+# v2: session recording needs "record"/"recording"/"recorded", not the noun "records" ("audit records" in AU-3 is
+# about log content and grounded a session-recording rule under v1).
+RECORDING = r"record(?!s\b)"
+FIELD_TERMS: dict[str, dict[str, tuple[str, ...]]] = {
+    "privileged_session": {"recording_status": (RECORDING,), "recording_reference": (RECORDING,),
+                           "recording_required": (RECORDING,),
+                           "ended_at": ("terminat", "logout", "log out", "duration", "session end")},
+    "privileged_account": {"enabled": ("enable", "disable"),
+                           "last_used_at": ("inactiv", "dormant", "unused", "not used", "last used", "last use")},
+    "credential_rotation": {"last_rotated_at": ("rotat", "refresh", "chang", "expir"),
+                            "last_rotation_status": ("rotat", "refresh", "chang")},
+    "privileged_access_request": {"approval_status": ("approv",), "approval_id": ("approv",),
+                                  "approved_at": ("approv",), "approver_id": ("approv",)},
+    "authentication_summary": {"failed_attempts": ("unsuccessful", "failed", "invalid logon", "attempt"),
+                               "lockout_triggered": ("lock",)},
+    "access_authorization": {"entitlement_status": ("authoriz", "entitle", "privilege"),
+                             "entitlement_valid_to": ("authoriz", "entitle", "expir")},
+    "break_glass_event": {"justification_provided": ("justif",), "justification_length": ("justif",),
+                          "ticket_reference": ("ticket", "change request"),
+                          "post_review_completed": ("review",), "post_review_at": ("review",)},
+    "policy_exception": {"status": ("exception",), "expires_at": ("exception", "expir")},
+    "access_review": {"last_review_completed_at": ("review", "recertif"), "last_review_outcome": ("review",)},
+    "audit_event": {"event_type": (r"type of event", r"event type"), "location_id": (r"where", r"location"),
+                    "source_id": (r"source",), "outcome": (r"outcome",),
+                    "actor_id": (r"identit", r"individual", r"subject"), "target_id": (r"object", r"entit")},
+    "audit_log_coverage": {"max_gap_seconds": ("gap", "continu", "complete"),
+                           "received_event_count": ("complete", "event"), "integrity_verified": ("integrit", "tamper")},
+    "mfa_configuration": {"mfa_enforced": ("multi-factor", "multifactor", "mfa"),
+                          "mfa_methods": ("multi-factor", "multifactor", "mfa")},
+    "privileged_access_authentication": {"mfa_status": ("multi-factor", "multifactor", "mfa"),
+                                         "mfa_method": ("multi-factor", "multifactor", "mfa")},
+    "session_policy_configuration": {"idle_timeout_enabled": ("idle", "inactiv"),
+                                     "idle_timeout_minutes": ("idle", "inactiv")},
+}
+
+
+def grounded_fields(spec: RuleSpec, req: dict[str, Any]) -> list[str]:
+    """Condition fields whose meaning the requirement text states (see FIELD_TERMS)."""
+    text = (req.get("translation_en") or req.get("original_text") or "").lower()
+    terms = FIELD_TERMS.get(spec.evidence_type, {})
+    return sorted({p.field for p in _predicates(spec.condition)
+                   if any(re.search(r"\b" + t, text) for t in terms.get(p.field, ()))})
+
+
+def relevant_evidence(req: dict[str, Any], cap: dict[str, Any]) -> list[str]:
+    text = (req.get("translation_en") or req.get("original_text") or "").lower()
+    out = []
+    for etype in sorted((cap.get("evidence_detail") or {})):
+        if etype not in CUSTOM_RULE_FIELDS:
+            continue
+        cat, supported = CUSTOM_RULE_FIELDS[etype], (cap["evidence_detail"][etype].get("supported_fields") or [])
+        if not any(f in cat and cat[f]["type"] == "datetime" and not cat[f]["nullable"] for f in supported):
+            continue  # no period field is collected for this type, so no generated rule can use it
+        words = EVIDENCE_KEYWORDS.get(etype)
+        if words is None or any(w in text for w in words):
+            out.append(etype)
+    return out
+
+
+def grammar_schema(db: CatalogDb, req: dict[str, Any], cap: dict[str, Any]) -> dict[str, Any]:
+    """The decoding grammar for one requirement: no $ref, no regex patterns (Ollama's converter drops both and then
+    accepts anything), enums for every identifier that must exist. Everything the validator requires is required
+    here, so the model cannot omit it. The Proposal model still validates the result; this only removes the ways a
+    small model fails (invented control ids, unknown fields, wrong shapes)."""
+    detail = cap.get("evidence_detail") or {}
+    variants = [v for etype in sorted(detail) if etype in CUSTOM_RULE_FIELDS
+                for v in [_spec_grammar(db, req, cap, etype)] if v is not None]
+    spec: dict[str, Any] = {"anyOf": variants} if len(variants) > 1 else (variants[0] if variants else {"type": "null"})
+    return {"type": "object", "additionalProperties": False,
+            "required": ["requirement_id", "decision", "confidence", "rationale", "rule_spec"],
+            "properties": {"requirement_id": {"const": req["id"]},
+                           "decision": {"enum": ["PROPOSE", "NO_RULE", "MANUAL_ASSESSMENT"]},
+                           "confidence": {"type": "number", "minimum": 0, "maximum": 1},
+                           "rationale": {"type": "string", "minLength": 1, "maxLength": 800},
+                           "rule_spec": {"anyOf": [spec, {"type": "null"}]}}}
+
+
+def _spec_grammar(db: CatalogDb, req: dict[str, Any], cap: dict[str, Any], etype: str) -> dict[str, Any] | None:
+    """One RuleSpec branch per declared evidence type: its own version, modes and supported fields. None when the
+    type has no collected non-null datetime field, since every generated rule needs one as its period field."""
+    d = (cap.get("evidence_detail") or {})[etype]
+    versions = [str((cap.get("evidence") or {}).get(etype) or EVIDENCE_SCHEMA_VERSIONS.get(etype, "1.0"))]
+    fields = sorted(f for f in d.get("supported_fields") or [] if f in CUSTOM_RULE_FIELDS[etype])
+    times = [f for f in fields if CUSTOM_RULE_FIELDS[etype][f]["type"] == "datetime"
+             and not CUSTOM_RULE_FIELDS[etype][f]["nullable"]]
+    if not times:
+        return None
+    modes = sorted(d.get("assessment_modes") or []) or ["EVENT_HISTORY"]
+    etypes = [etype]
+    controls = [r["id"] for r in db.q("SELECT id FROM pam_control ORDER BY id")]
+    settings = [(cid, name) for (cid, _v), defn in sorted(pc.CONTROLS.items())
+                for name, s in ((defn.get("parameter_schema") or {}).get("properties") or {}).items()
+                if s.get("type") in ("integer", "boolean")]
+    text = {"type": "string", "minLength": 1, "maxLength": 400}
+    lit = {"anyOf": [{"type": "boolean"}, {"type": "integer"}, {"type": "string", "maxLength": 64},
+                     {"type": "array", "items": {"type": "string", "maxLength": 64}, "maxItems": 20}, {"type": "null"}]}
+    ops = {"enum": list(get_args(Operator))}
+    # a predicate takes a literal value (or none, for exists/not_exists) OR a declared parameter, never both
+    pred = {"anyOf": [
+        {"type": "object", "additionalProperties": False, "required": ["field", "operator", "value"],
+         "properties": {"field": {"enum": fields}, "operator": ops, "value": lit}},
+        {"type": "object", "additionalProperties": False, "required": ["field", "operator", "parameter"],
+         "properties": {"field": {"enum": fields}, "operator": ops,
+                        "parameter": {"type": "string", "minLength": 1, "maxLength": 64}}}]}
+    leaf = {"type": "object", "additionalProperties": False, "required": ["operator", "where"],
+            "properties": {"operator": {"enum": ["all", "any", "none"]},
+                           "where": {"type": "array", "items": pred, "minItems": 1, "maxItems": 10}}}
+    root = {"type": "object", "additionalProperties": False, "required": ["operator", "where"],
+            "properties": {"operator": {"enum": ["all", "any", "none"]},
+                           "where": {"type": "array", "items": {"anyOf": [pred, leaf]}, "minItems": 1, "maxItems": 10}}}
+    binding = {"anyOf": [{"type": "object", "additionalProperties": False, "required": ["control_id", "parameter"],
+                          "properties": {"control_id": {"enum": sorted({c for c, _ in settings})},
+                                         "parameter": {"enum": sorted({n for _, n in settings})}}}, {"type": "null"}]}
+    param = {"type": "object", "additionalProperties": False, "required": ["type", "unit", "description",
+                                                                            "policy_control"],
+             "properties": {"type": {"enum": ["integer", "boolean"]},
+                            "unit": {"enum": ["days", "hours", "minutes", "seconds", "attempts", "count", "none"]},
+                            "description": text, "policy_control": binding}}
+    spec = {"type": "object", "additionalProperties": False,
+            "required": ["spec_version", "title", "description", "pam_control_id", "evidence_type",
+                         "evidence_schema_version", "assessment_mode", "subject_field", "population", "parameters",
+                         "condition", "missing_evidence_result", "coverage", "source_requirement_ids", "limitations"],
+            "properties": {
+                "spec_version": {"const": SPEC_VERSION}, "title": {"type": "string", "minLength": 3, "maxLength": 120},
+                "description": text, "pam_control_id": {"enum": controls}, "evidence_type": {"enum": etypes},
+                "evidence_schema_version": {"enum": versions}, "assessment_mode": {"enum": modes},
+                "subject_field": {"enum": fields},
+                "population": {"type": "object", "additionalProperties": False, "required": ["type", "period_field", "where"],
+                               "properties": {"type": {"const": "ORGANIZATION_SUPPORTED_ENTITIES"},
+                                              "period_field": {"enum": times},
+                                              "where": {"type": "array", "items": pred, "maxItems": 10}}},
+                "parameters": {"type": "object", "additionalProperties": param},
+                "condition": {"anyOf": [pred, root]},
+                "missing_evidence_result": {"const": "INSUFFICIENT_EVIDENCE"}, "coverage": {"const": "PARTIAL"},
+                "source_requirement_ids": {"type": "array", "items": {"const": req["id"]}, "minItems": 1, "maxItems": 1},
+                "limitations": {"type": "array", "items": {"type": "string", "minLength": 10, "maxLength": 300},
+                                "minItems": 1, "maxItems": 5}}}
+    return spec
+
+
+def _model_input(proposal: dict[str, Any]) -> dict[str, Any]:
+    """The grammar makes every key explicit (null predicate value/parameter, empty description); drop the nulls
+    so the result is the RuleSpec the validator expects."""
+    def clean(o: Any) -> Any:
+        if isinstance(o, dict):
+            return {k: clean(v) for k, v in o.items()
+                    if not (v is None and k in ("value", "parameter", "policy_control"))}
+        return [clean(v) for v in o] if isinstance(o, list) else o
+    return clean(proposal)
+
+
+# One synthetic example of a well-formed answer (never a real regulation; the model must not copy its content).
+EXAMPLE_PROPOSAL = (
+    'Synthetic example of the answer format only (requirement 0 "Every privileged session must have a complete '
+    'recording"; do not copy its content): {"requirement_id":0,"decision":"PROPOSE","confidence":0.9,"rationale":'
+    '"Recording status is collected per privileged session.","rule_spec":{"spec_version":"1.0","title":"Privileged '
+    'sessions are fully recorded","description":"Each in-period privileged session has an available recording.",'
+    '"pam_control_id":"<one listed PAM control id>","evidence_type":"privileged_session","evidence_schema_version":'
+    '"1.0","assessment_mode":"EVENT_HISTORY","subject_field":"session_id","population":{"type":'
+    '"ORGANIZATION_SUPPORTED_ENTITIES","period_field":"started_at","where":[{"field":"recording_required","operator":'
+    '"equals","value":true,"parameter":null}]},"parameters":{},"condition":{"field":"recording_status","operator":'
+    '"equals","value":"AVAILABLE","parameter":null},"missing_evidence_result":"INSUFFICIENT_EVIDENCE","coverage":'
+    '"PARTIAL","source_requirement_ids":[0],"limitations":["Does not establish who may view recordings."]}}. '
+    'A threshold is never a literal: declare it under parameters (with policy_control when a listed organization '
+    'setting fits) and reference it with "parameter". When the listed evidence cannot test the obligation answer '
+    '{"decision":"NO_RULE","rule_spec":null,...}.')
+
+
 # ---------------------------------------------------------------- orchestration per requirement
 
 def _gap(code: str, message: str, **extra: Any) -> dict[str, Any]:
@@ -996,8 +1198,10 @@ def _store_activate(store_path: Path, tenant: str, compiled: dict[str, Any], act
         row = store.get_custom(tenant, d["rule_id"], d["version"])
         if row is None:
             store.create_custom(tenant, d, compiled["compiled"], compiled["rule_digest"].split(":", 1)[1], actor)
-        elif row["digest"] != compiled["rule_digest"].split(":", 1)[1]:
-            raise Gap("RULE_COMPILATION_FAILED", f"{d['rule_id']} exists in the rule store with a different digest")
+        elif row["digest"] != compiled["rule_digest"].split(":", 1)[1] and row["compiled"] != compiled["compiled"]:
+            # same id but different logic would be a digest collision; identical logic with a different title or
+            # source requirement (a second requirement proposing the same test) reuses the stored rule
+            raise Gap("RULE_COMPILATION_FAILED", f"{d['rule_id']} exists in the rule store with different logic")
         if row is None or row["status"] != "ACTIVE":
             store.set_custom_status(tenant, d["rule_id"], d["version"], "ACTIVE", actor)
     finally:
@@ -1117,21 +1321,52 @@ def _proposal_for(db: CatalogDb, llm: Any, req: dict[str, Any], ref: dict[str, A
                     "requirement_id=? ORDER BY id DESC", (scope, req["id"])):
         if (row["llm_validation"] or {}).get("proposal_key") == proposal_key and row["raw_output"] is not None:
             return (row["raw_output"], *_parse(row["raw_output"], truncated=False), False)
+    relevant = relevant_evidence(req, cap)
+    if not relevant:
+        declared = sorted((cap.get("evidence_detail") or {}))
+        return None, None, _gap("COLLECTOR_MISSING", f"no declared evidence type relates to this requirement "
+                                f"({SCREEN_VERSION}; declared: {', '.join(declared) or 'none'}); not sent to the "
+                                "model"), False
+    narrowed = {**cap, "evidence_detail": {e: (cap.get("evidence_detail") or {})[e] for e in relevant}}
     try:
-        out = llm.generate_raw(SYSTEM_RULESPEC, _context(db, req, ref, cap), _prompt_schema())
+        out = llm.generate_raw(SYSTEM_RULESPEC + " " + EXAMPLE_PROPOSAL, _context(db, req, ref, narrowed),
+                               grammar_schema(db, req, narrowed))
     except LlmError as exc:
         return None, None, _gap("LLM_ERROR", str(exc)[:300]), True
     return (out.content, *_parse(out.content, truncated=bool(getattr(out, "truncated", False))), True)
 
 
+def _first_object(raw: str) -> Any:
+    """The first complete JSON value at the start of the output. Small models often emit one valid object and
+    then keep generating (repeats, prose); that tail is never used, so it is neither parsed nor scanned."""
+    text = raw.lstrip()
+    if not text.startswith("{"):
+        raise ValueError("output does not start with a JSON object")
+    value, _end = json.JSONDecoder().raw_decode(text)
+    return value
+
+
 def _parse(raw: str, *, truncated: bool) -> tuple[dict[str, Any] | None, dict[str, Any] | None]:
-    bad = forbidden_content(raw)
+    try:
+        obj = _first_object(raw)
+    except ValueError:
+        obj = None
+    # a decline never uses a rule_spec; small models attach a filler one ("No rule available ...") that would
+    # otherwise turn a clear NO_RULE / MANUAL_ASSESSMENT answer into RULE_SPEC_INVALID
+    if isinstance(obj, dict) and obj.get("decision") in ("NO_RULE", "MANUAL_ASSESSMENT"):
+        obj = {k: v for k, v in obj.items() if k != "rule_spec"}
+    if isinstance(obj, dict):
+        obj = _model_input(obj)
+    # scan exactly what would be used: the decoded object (string values), else the whole raw text
+    bad = forbidden_content(json.dumps(obj, ensure_ascii=False) if obj is not None else raw)
     if bad:
         return None, _gap("RULE_SPEC_INVALID", f"the proposal contains forbidden content: {bad}", forbidden=bad)
-    if truncated:
-        return None, _gap("LLM_OUTPUT_INVALID", "the model output was truncated at the output limit")
+    if obj is None:
+        if truncated:
+            return None, _gap("LLM_OUTPUT_INVALID", "the model output was truncated at the output limit")
+        return None, _gap("LLM_OUTPUT_INVALID", "the model output is not a JSON object")
     try:
-        proposal = Proposal.model_validate(json.loads(raw))
+        proposal = Proposal.model_validate(obj)
     except (ValueError, ValidationError) as exc:
         code = "RULE_SPEC_INVALID" if isinstance(exc, ValidationError) else "LLM_OUTPUT_INVALID"
         return None, _gap(code, f"the proposal does not conform to RuleSpec {SPEC_VERSION}: {str(exc)[:300]}")
@@ -1163,14 +1398,31 @@ def generate(db: CatalogDb, engine: Any, llm: Any, decisions: list[dict[str, Any
     if bundle_dir is not None and (bundle_dir / "securden" / "bundle" / "data.json").is_file():
         bundle_version = json.loads((bundle_dir / "securden" / "bundle" / "data.json").read_text(
             encoding="utf-8"))["version"]
+    tally: dict[str, int] = {}  # running outcome counts, shown in progress
+    recent: list[dict[str, Any]] = []  # the last decisions with their reason (why a rule was not generated)
+    started = datetime.now(timezone.utc)
+
+    def tick(done: int, substep: str, current: dict[str, Any] | None) -> None:
+        """Live progress: counted (done/total/unit, so the job ETA applies), the requirement being worked on,
+        its sub-step and the outcomes so far. Detail markers are not added to the job's stage list."""
+        if progress is None:
+            return
+        spent = (datetime.now(timezone.utc) - started).total_seconds()
+        progress("propose_missing_rules", done=done, total=len(todo), unit="requirements", completed=done,
+                 substep=substep, current=current, outcomes=dict(sorted(tally.items())),
+                 rules_activated=tally.get(GENERATED_RULE_ACTIVATED, 0),
+                 rules_validated=tally.get(GENERATED_RULE_VALIDATED, 0), recent=list(recent),
+                 seconds_per_requirement=round(spent / done, 1) if done else None, detail=True)
+
     for n, d in enumerate(todo, 1):
         rid = d["requirement_id"]
         req = db.one("SELECT * FROM regulatory_requirement WHERE id=?", (rid,))
         if req is None:
             continue
         ref = control_ids.annotate(db, [req]).get(rid, {}) if req.get("section_id") else {}
-        if progress is not None:
-            progress("propose_missing_rules", completed=n - 1, total=len(todo), requirement_id=rid)
+        current = {"requirement_id": rid, "section_ref": req.get("section_ref"),
+                   "control_id": ref.get("canonical_id"), "clause": ref.get("clause")}
+        tick(n - 1, "propose", current)
         proposal_key = digest_of({"requirement": digest_of({k: req[k] for k in ("id", "original_text", "translation_en",
                                                                                 "document_version_id")}),
                                   "ref": {k: ref.get(k) for k in ("canonical_id", "clause")},
@@ -1204,9 +1456,18 @@ def generate(db: CatalogDb, engine: Any, llm: Any, decisions: list[dict[str, Any
             if proposal.confidence < min_confidence():
                 raise Gap("RULE_PROPOSAL_AMBIGUOUS", f"confidence {proposal.confidence} is below the automation "
                           f"threshold {min_confidence()}")
-            spec = proposal.rule_spec
+            spec, dropped = drop_unused_parameters(proposal.rule_spec)
+            tick(n - 1, "validate", current)
             stage_counts["validate_rule_specs"] += 1
             checks = validate(spec, req=req, cap=cap, db=db)
+            if dropped:
+                checks.append(f"unused_parameters_dropped:{','.join(dropped)}")
+            grounded = grounded_fields(spec, req)
+            if not grounded:
+                tested = sorted({p.field for p in _predicates(spec.condition)})
+                raise Gap("RULE_SPEC_INVALID", f"the condition tests {tested}, which the requirement text does not "
+                          f"mention ({GROUNDING_VERSION}); a rule on these fields would not test this obligation")
+            checks.append(f"condition_grounded:{','.join(grounded)}")
             resolution = resolve(spec, req=req, settings=settings)
             missing = [e["name"] for e in resolution if e["value"] is None]
             if missing:
@@ -1215,9 +1476,11 @@ def generate(db: CatalogDb, engine: Any, llm: Any, decisions: list[dict[str, Any
             checks.append("parameters_grounded")
             if bundle_dir is None or tenant is None:
                 raise Gap("RULE_COMPILATION_FAILED", "no policy bundle or tenant is configured for this job")
+            tick(n - 1, "compile", current)
             stage_counts["compile_generated_rules"] += 1
             compiled = compile_spec(spec, resolution, scope=scope, tenant=tenant, bundle_dir=bundle_dir)
             checks.append("compiled")
+            tick(n - 1, "test", current)
             stage_counts["test_generated_rules"] += 1
             try:
                 cases = build_cases(spec, compiled["values"])
@@ -1240,10 +1503,11 @@ def generate(db: CatalogDb, engine: Any, llm: Any, decisions: list[dict[str, Any
                           "rule_version": compiled["version"], "generated_rule_version_id": row["id"],
                           "message": "validated, compiled and tested; activation was not requested"}
             else:
-                current = pctx.capabilities(db, scope, tenant).get("digest")
-                if pinned_digest is None or current != pinned_digest or cap.get("digest") != pinned_digest:
+                live_digest = pctx.capabilities(db, scope, tenant).get("digest")
+                if pinned_digest is None or live_digest != pinned_digest or cap.get("digest") != pinned_digest:
                     raise Gap("EVIDENCE_SCHEMA_INCOMPATIBLE", "the collector declaration changed after the job was "
                               "submitted (stale collector_capability_digest); activation refused")
+                tick(n - 1, "activate", current)
                 stage_counts["publish_generated_rules"] += 1
                 result = _activate_and_map(db, engine, row=row, compiled=compiled, spec=spec, req=req, scope=scope,
                                            tenant=tenant, actor=me, store_path=store_path or Path("opm.db"),
@@ -1297,6 +1561,11 @@ def generate(db: CatalogDb, engine: Any, llm: Any, decisions: list[dict[str, Any
         if result["outcome"] == "PUBLISHABLE":
             out["mapping_ids"].append(result["mapping_id"])
         out["decisions"].append(record)
+        tally[orchestration] = tally.get(orchestration, 0) + 1
+        recent[:] = (recent + [{**current, "outcome": orchestration, "rule_id": record.get("rule_id"),
+                                "reason": (result.get("message") or "")[:300],
+                                "model_called": _called}])[-5:]
+        tick(n, "done", current)
     if progress is not None:
         for stage, done in stage_counts.items():
             progress(stage, completed=done, total=len(todo))

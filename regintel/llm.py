@@ -134,7 +134,10 @@ class OllamaClient:
             "stream": False,
             "format": schema,
             "keep_alive": self.keep_alive,
-            "options": {"temperature": 0, "seed": 0, "num_ctx": self.num_ctx, "num_predict": self.num_predict},
+            # stop at a newline + code fence: valid JSON never contains a raw newline inside a string, and small
+            # models otherwise repeat the answer as a markdown block until num_predict (minutes per call)
+            "options": {"temperature": 0, "seed": 0, "num_ctx": self.num_ctx, "num_predict": self.num_predict,
+                        "stop": ["\n```"]},
             "messages": [{"role": "system", "content": system},
                          {"role": "user", "content": prompt + "\n\nReturn JSON matching this schema:\n"
                           + json.dumps(schema, separators=(",", ":"))}],

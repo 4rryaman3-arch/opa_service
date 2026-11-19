@@ -188,7 +188,9 @@ def prepare_catalog(db: CatalogDb, *, actor: str, scope: str, mode: str, jurisdi
     def report(stage: str, **info: Any) -> None:
         # every marker also names its orchestration stage (DJANGO_CONTRACT §5.4) for a stable progress UI
         info = {"orchestration_stage": ORCHESTRATION_STAGE.get(stage, stage), **info}
-        result["stages"].append({"stage": stage, "job_id": job_id, "at": now_iso(), **info})
+        # per-item detail markers (rule generation) update the live marker only, not the result's stage list
+        if not info.pop("detail", False):
+            result["stages"].append({"stage": stage, "job_id": job_id, "at": now_iso(), **info})
         if progress is not None:
             progress(stage, **info)
 

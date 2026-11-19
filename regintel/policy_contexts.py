@@ -96,6 +96,17 @@ class EvidenceSupport(_In):
         default=None, min_length=1, max_length=2)
     supported_fields: list[Annotated[str, StringConstraints(pattern=r"^[a-z][a-z0-9_]{0,63}$")]] | None = Field(
         default=None, min_length=1, max_length=64)
+    # COLLECTED: sent with evaluations today. LOOKUP_AVAILABLE: the PAM holds this data (a lookup over its
+    # database) but the collector does not send it yet. Rule generation may design and test rules on it; they stay
+    # validated (not activated) until the type is declared COLLECTED. Nothing else treats it as collected.
+    collection_status: Literal["COLLECTED", "LOOKUP_AVAILABLE"] = "COLLECTED"
+    caveats: Annotated[str, StringConstraints(max_length=500)] | None = None
+
+    @model_validator(mode="after")
+    def _lookup_needs_detail(self):
+        if self.collection_status == "LOOKUP_AVAILABLE" and (not self.supported_fields or not self.assessment_modes):
+            raise ValueError("LOOKUP_AVAILABLE evidence needs assessment_modes and supported_fields")
+        return self
 
 
 class CollectorInfo(_In):
@@ -362,7 +373,9 @@ def declare_capabilities(db: CatalogDb, *, scope: str, actor: str, body: Collect
         raise CatalogError("INVALID_CAPABILITIES", "each evidence_type may be declared once")
     from app.models.evidence import CUSTOM_RULE_FIELDS
 
-    evidence = {e.evidence_type: e.schema_version for e in sorted(body.evidence, key=lambda e: e.evidence_type)}
+    # only COLLECTED types count as collected (readiness, plans, existing-rule matching)
+    evidence = {e.evidence_type: e.schema_version for e in sorted(body.evidence, key=lambda e: e.evidence_type)
+                if e.collection_status == "COLLECTED"}
     detail: dict[str, Any] = {}
     for e in body.evidence:
         if e.supported_fields is not None:
@@ -373,7 +386,12 @@ def declare_capabilities(db: CatalogDb, *, scope: str, actor: str, body: Collect
                                                                  "fields": unknown_fields})
         if e.assessment_modes is not None or e.supported_fields is not None:
             detail[e.evidence_type] = {"assessment_modes": sorted(set(e.assessment_modes or [])),
-                                       "supported_fields": sorted(set(e.supported_fields or []))}
+                                       "supported_fields": sorted(set(e.supported_fields or [])),
+                                       # extra keys only for lookup types, so existing digests stay unchanged
+                                       **({"collection_status": e.collection_status,
+                                           "schema_version": e.schema_version}
+                                          if e.collection_status != "COLLECTED" else {}),
+                                       **({"caveats": e.caveats} if e.caveats else {})}
     collector = body.collector.model_dump()
     # declarations without the optional detail keep their earlier digest
     digest = "sha256:" + digest_of({"collector": collector, "evidence": evidence, **({"detail": detail} if detail else {})})

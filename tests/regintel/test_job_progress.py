@@ -58,6 +58,23 @@ def test_measured_step_rate_gives_a_step_and_job_eta(tmp_path):
     assert out["seconds_since_update"] == 4.0 and out["elapsed_seconds"] == 54.0
 
 
+def test_rule_generation_progress_has_detail_and_an_eta(tmp_path):
+    jobs, clock, jid = running_job(tmp_path)
+    cur = {"requirement_id": 354, "section_ref": "page 107", "control_id": "AU-14", "clause": "a"}
+    base = {"total": 40, "unit": "requirements", "orchestration_stage": "propose_missing_rules"}
+    jobs.set_progress(jid, "propose_missing_rules", **base, done=0, substep="propose", current=cur, outcomes={})
+    clock.tick(300)
+    jobs.set_progress(jid, "propose_missing_rules", **base, done=2, substep="test", current=cur,
+                      outcomes={"NO_RULE_PROPOSED": 2}, rules_activated=0, seconds_per_requirement=150.0)
+    out = view(jobs, jid)
+    assert out["step"]["seconds_per_unit"] == 150.0 and out["eta"]["seconds"] == 38 * 150.0
+    rg = out["rule_generation"]
+    assert rg["substep"] == "test" and rg["current"]["requirement_id"] == 354 and rg["done"] == 2
+    assert rg["outcomes"] == {"NO_RULE_PROPOSED": 2} and out["orchestration_stage"] == "propose_missing_rules"
+    jobs.set_progress(jid, "readiness")
+    assert view(jobs, jid)["rule_generation"] is None
+
+
 def test_more_frameworks_or_versions_leave_the_job_eta_open(tmp_path):
     jobs, clock, jid = running_job(tmp_path)
     for done in (1, 5):
