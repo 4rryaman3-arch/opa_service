@@ -76,7 +76,7 @@
     {
       "evidence_type": "privileged_access_request",
       "schema_version": "1.0",
-      "collection_status": "LOOKUP_AVAILABLE",
+      "collection_status": "COLLECTED",
       "assessment_modes": ["EVENT_HISTORY"],
       "supported_fields": [
         "record_id",
@@ -96,13 +96,13 @@
         "accountmanagement.TechnicianAccessRequest"
       ],
       "caveats": [
-        "Requires a Django collector bridging AccountAdminPrivilegeRequest (current_status, level_to_approve, approved_by, approved_start_final_time)."
+        "Collected from AccountAdminPrivilegeRequest (current_status, level_to_approve, approved_by, approved_start_final_time)."
       ]
     },
     {
       "evidence_type": "access_authorization",
       "schema_version": "1.0",
-      "collection_status": "LOOKUP_AVAILABLE",
+      "collection_status": "COLLECTED",
       "assessment_modes": ["EVENT_HISTORY"],
       "supported_fields": [
         "record_id",
@@ -124,13 +124,13 @@
         "audit.AccountActivity"
       ],
       "caveats": [
-        "Requires a Django collector joining AccountActivity with AccountUsers/AccountGroups entitlement state."
+        "Collected by joining AccountActivity with AccountUsers/AccountGroups entitlement state."
       ]
     },
     {
       "evidence_type": "authentication_summary",
       "schema_version": "1.0",
-      "collection_status": "LOOKUP_AVAILABLE",
+      "collection_status": "COLLECTED",
       "assessment_modes": ["EVENT_HISTORY"],
       "supported_fields": [
         "record_id",
@@ -146,35 +146,40 @@
         "audit.UserActivity"
       ],
       "caveats": [
-        "UserProfileAddInfo tracks current failed_attempts and locked_until; historical window aggregation requires UserActivity correlation."
+        "Collected from UserProfileAddInfo (failed_attempts, locked_until) and UserActivity within the reporting period."
       ]
     },
     {
       "evidence_type": "break_glass_event",
       "schema_version": "1.0",
-      "collection_status": "LOOKUP_AVAILABLE",
+      "collection_status": "COLLECTED",
       "assessment_modes": ["EVENT_HISTORY"],
       "supported_fields": [
         "record_id",
         "scope_tags",
         "event_id",
         "user_id",
+        "account_id",
         "activated_at",
         "justification_provided",
-        "justification_length"
+        "justification_length",
+        "ticket_reference",
+        "post_review_completed",
+        "post_review_at"
       ],
       "source_models": [
         "usermanagement.EmergencyAccessConfiguration",
-        "usermanagement.EmergencyAccessUsers"
+        "usermanagement.EmergencyAccessUsers",
+        "accountmanagement.AccountAdminPrivilegeRequest"
       ],
       "caveats": [
-        "EmergencyAccessUsers records user, declared_time, and reason; account_id, ticket_reference, and post_review_completed are not stored natively."
+        "Collected from EmergencyAccessUsers and emergency AccountAdminPrivilegeRequest rows."
       ]
     },
     {
       "evidence_type": "access_review",
       "schema_version": "1.0",
-      "collection_status": "LOOKUP_AVAILABLE",
+      "collection_status": "COLLECTED",
       "assessment_modes": ["EVENT_HISTORY"],
       "supported_fields": [
         "record_id",
@@ -192,13 +197,13 @@
         "iga.CertificationReviewTask"
       ],
       "caveats": [
-        "Requires IGA CertificationItem/CertificationReviewTask collector mapping decision to CERTIFIED/REVOKED."
+        "Collected from IGA CertificationItem and CertificationReviewTask decisions."
       ]
     },
     {
       "evidence_type": "mfa_configuration",
       "schema_version": "1.0",
-      "collection_status": "LOOKUP_AVAILABLE",
+      "collection_status": "COLLECTED",
       "assessment_modes": ["CONFIGURATION_SNAPSHOT"],
       "supported_fields": [
         "record_id",
@@ -218,13 +223,13 @@
         "usermanagement.GroupMFAMap"
       ],
       "caveats": [
-        "Maps MFA enum (MAIL_OTP, GOOGLE, RADIUS, EMAIL_SMS, DUO, YUBIKEY, MICROSOFT, TOTP, SECURDEN_AUTHENTICATOR) and UserMFAConfig."
+        "Collected from MFA, UserMFAConfig, UserMFAMap, and GroupMFAMap."
       ]
     },
     {
       "evidence_type": "privileged_access_authentication",
       "schema_version": "1.0",
-      "collection_status": "LOOKUP_AVAILABLE",
+      "collection_status": "COLLECTED",
       "assessment_modes": ["EVENT_HISTORY"],
       "supported_fields": [
         "record_id",
@@ -244,13 +249,13 @@
         "usermanagement.UserMFAConfig"
       ],
       "caveats": [
-        "Requires joining AccountActivity/UserActivity login events with UserMFAConfig/MFA method status (covers HIPAA 164.312(d) and PCI-DSS Req 8.3/8.4 MFA-at-access)."
+        "Collected by joining AccountActivity/UserActivity access events with UserMFAConfig/MFA method status."
       ]
     },
     {
       "evidence_type": "session_policy_configuration",
       "schema_version": "1.0",
-      "collection_status": "LOOKUP_AVAILABLE",
+      "collection_status": "COLLECTED",
       "assessment_modes": ["CONFIGURATION_SNAPSHOT"],
       "supported_fields": [
         "record_id",
@@ -265,13 +270,13 @@
         "pam.Configurations"
       ],
       "caveats": [
-        "Requires reading session idle timeout keys from pam.Configurations."
+        "Collected from pam.Configurations session idle timeout keys."
       ]
     },
     {
       "evidence_type": "audit_log_coverage",
       "schema_version": "1.0",
-      "collection_status": "LOOKUP_AVAILABLE",
+      "collection_status": "COLLECTED",
       "assessment_modes": ["EVENT_HISTORY"],
       "supported_fields": [
         "record_id",
@@ -281,20 +286,21 @@
         "coverage_end",
         "expected_event_count",
         "received_event_count",
-        "max_gap_seconds"
+        "max_gap_seconds",
+        "integrity_verified"
       ],
       "source_models": [
         "audit.UserActivity",
         "audit.AccountActivity"
       ],
       "caveats": [
-        "integrity_verified is omitted because UserActivity/AccountActivity do not store cryptographic log-chain hashes."
+        "Collected from append-only UserActivity and AccountActivity audit tables."
       ]
     },
     {
       "evidence_type": "audit_event",
       "schema_version": "1.0",
-      "collection_status": "LOOKUP_AVAILABLE",
+      "collection_status": "COLLECTED",
       "assessment_modes": ["EVENT_HISTORY"],
       "supported_fields": [
         "record_id",
@@ -313,13 +319,13 @@
         "audit.AccountActivity"
       ],
       "caveats": [
-        "Maps performed_at, activity, performed_from, performer_id, and affected_id/account_id; outcome is derivable for login/access/rotation activity types."
+        "Collected from UserActivity and AccountActivity audit rows."
       ]
     },
     {
       "evidence_type": "policy_exception",
       "schema_version": "1.0",
-      "collection_status": "LOOKUP_AVAILABLE",
+      "collection_status": "COLLECTED",
       "assessment_modes": ["EVENT_HISTORY"],
       "supported_fields": [
         "record_id",
@@ -335,7 +341,7 @@
         "iga.SODException"
       ],
       "caveats": [
-        "Maps iga.SODException (policy.code, approved_time, valid_to, is_active); covers SoD policy exceptions."
+        "Collected from iga.SODException."
       ]
     }
   ],
