@@ -721,14 +721,19 @@ raw output. A retry with identical inputs re-checks the stored output without ca
   holds the last 5 decisions: `{requirement_id, section_ref, control_id, clause, outcome, rule_id, reason,
   model_called}`. `reason` says why no rule was generated (e.g. "declared parameters not used by the condition").
   `rule_generation` is null in every other stage. These per-requirement markers are not added to `stages[]`.
-- Generation (prompt `rule-spec-v15`) asks the model in three steps, each re-used from the stored decision on an
+- Generation (prompt `rule-spec-v18`) asks the model in three steps, each re-used from the stored decision on an
   identical retry: **analyse** (plain text, no grammar: the obligation, what a compliant and a violating record look
   like, the field that tells them apart; ends `VERDICT: TESTABLE <type>.<field>`, `NOT_TESTABLE` →
   `NO_RULE_PROPOSED` or `PERSON_JUDGES` → `MANUAL_ASSESSMENT_REQUIRED`, with the reasoning in `message`), **write**
   (the RuleSpec under the grammar, given the analysis and only the chosen evidence type), and after the
-  deterministic gates **judge** (plain text: does a failing record mean the obligation was breached; `JUDGE: NO` →
-  `RULE_SPEC_INVALID` "review (NO)"). The decision's `llm_validation` keeps `analysis {text, verdict, evidence_type,
-  field}` and `review {text, verdict, spec_digest}`; a judged rule has the check `judged_by_model`. With a runtime
+  deterministic gates **judge**: OPM writes two example records from the rule, one passing and one failing (order
+  fixed by the spec digest), and asks which one shows the requirement being broken (`ANSWER: A|B|NEITHER`). The
+  failing record → accepted; the passing one → `RULE_SPEC_INVALID` "review (FLAGS_COMPLIANT)" (an inverted rule);
+  `NEITHER` → "review (NO)"; no answer → "review (UNCLEAR)". Coverage is not judged (every rule is `PARTIAL`). A
+  `NOT_TESTABLE` analysis whose reasoning names a declared field with a value ("`entitlement_status` as
+  `AUTHORIZED`") still goes to the write step. The decision's `llm_validation` keeps `analysis {text, verdict,
+  evidence_type, field}` and `review {text, verdict, answer, failing_record, records{A,B}, spec_digest}`; a judged
+  rule has the check `judged_by_model`. With a runtime
   that cannot answer in plain text the analyse and judge steps are skipped and the word gate below decides.
 - Generation only asks the model about a requirement whose wording relates to a declared
   evidence type with a collected non-null timestamp (screen `rule-screen-v2`: each evidence type has a keyword list, and only the types whose
@@ -741,7 +746,8 @@ raw output. A retry with identical inputs re-checks the stored output without ca
   needs "recording(s)"/"recorded"); otherwise `RULE_SPEC_INVALID` with the tested fields in `reason`. When the judge
   step runs, this gate is a hint (`condition_not_word_grounded` is recorded and the judge is told) and the judge
   decides. Always rejected: a condition repeating a population filter (filters take only scope flags such as
-  `privileged`, `*_required`, `applies_to_*`), a condition requiring accounts to be enabled, and limitations copied
+  `privileged`, `*_required`, `applies_to_*`), a condition requiring accounts to be enabled, a condition that is only
+  "enabled is false" (it fails every account in use), and limitations copied
   from the prompt's worked example.
 
 **Generation only** (`POST /admin/jobs`, action `generate_rules`, scope `catalog:automate` and the organization

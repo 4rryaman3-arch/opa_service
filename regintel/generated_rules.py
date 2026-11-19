@@ -75,7 +75,8 @@ COMPILER_VERSION = "pam-rulespec-compiler-1.0"
 # plain-text review must accept the finished rule; word grounding becomes a hint to the review instead of a gate
 # v16: a NOT_TESTABLE analysis that names a declared test field with a value goes on to write and judge
 # v17: that check also reads "`field` as VALUE", "field shows ...", "field: VALUE"
-PROMPT_VERSION = "rule-spec-v17"
+# v18: the review is a concrete choice between a passing and a failing example record (catches inverted rules)
+PROMPT_VERSION = "rule-spec-v18"
 POLICY_VERSION = "rule-gen-v1"
 FLAG_GENERATE = "REGINTEL_AUTO_RULE_GENERATION"
 FLAG_PUBLISH = "REGINTEL_AUTO_PUBLISH_GENERATED_RULES"
@@ -309,6 +310,18 @@ def _fields(spec: RuleSpec) -> set[str]:
     return out
 
 
+def disables_every_account(spec: RuleSpec) -> bool:
+    """The whole condition is "enabled is false". Disabling is owed for dormant, departed or unauthorized accounts,
+    never for every account in scope, so alone it fails every account in use (AC-2 a and AC-2(7), 2026-11-20; the
+    model review accepted it about half the time)."""
+    leaves = list(_predicates(spec.condition))
+    if len(leaves) != 1 or not (isinstance(spec.condition, Predicate) or spec.condition.operator == "all"):
+        return False
+    p = leaves[0]
+    return p.field == "enabled" and ((p.operator == "equals" and p.value is False)
+                                     or (p.operator == "not_equals" and p.value is True))
+
+
 def validate(spec: RuleSpec, *, req: dict[str, Any], cap: dict[str, Any], db: CatalogDb) -> list[str]:
     """Every deterministic gate before resolution. Raises Gap; returns the checks that passed."""
     checks: list[str] = []
@@ -358,7 +371,12 @@ def validate(spec: RuleSpec, *, req: dict[str, Any], cap: dict[str, Any], db: Ca
             raise Gap("RULE_SPEC_INVALID", "population filters take literal boolean/enum/tag values only")
         _check_predicate(pred, catalogue, spec, referenced)
     filters = {(p.field, p.operator, json.dumps(p.value, sort_keys=True)) for p in spec.population.where}
-    for pred in _predicates(spec.condition):
+    leaves = list(_predicates(spec.condition))
+    if disables_every_account(spec):
+        raise Gap("RULE_SPEC_INVALID", "the condition requires every in-scope account to be disabled; that fails "
+                  "every account in use, so the rule would flag compliant behaviour (say which accounts must be "
+                  "disabled, e.g. dormant ones)")
+    for pred in leaves:
         if pred.operator == "contains":
             raise Gap("RULE_SPEC_INVALID", "'contains' is allowed only in population filters")
         if pred.field == "enabled" and ((pred.operator == "equals" and pred.value is True)
@@ -1176,17 +1194,61 @@ SYSTEM_ANALYSE = (
     "End with exactly one line, one of:\n"
     "VERDICT: TESTABLE <evidence_type>.<field>\nVERDICT: NOT_TESTABLE\nVERDICT: PERSON_JUDGES")
 
+# Asked as one concrete choice between two records OPM writes from the rule (one passing, one failing, in an order
+# fixed by the spec digest). Abstract questions failed on gemma3:4b (NIST run 2026-11-20): "does the rule test the
+# requirement" became "does it cover all of it" (9 of 9 partial rules rejected, AC-7 a's failed-logon limit among
+# them) and "would a compliant organisation fail it" was answered FAIL for nearly every rule. The concrete choice
+# also catches inverted rules ("each record must have failed_attempts >= the maximum"), which no other gate sees.
 SYSTEM_JUDGE = (
-    "You are a strict PAM compliance reviewer. You get a regulatory requirement and an automated rule. Decide "
-    "whether the rule really tests the requirement: a record failing the rule must mean the obligation was not met "
-    "for it, and normal compliant behaviour must pass. Every automated rule is PARTIAL by design: accept a rule that "
-    "correctly tests ONE part of the obligation even though it does not cover the rest (its limitations say what is "
-    "left out). Reject rules that test a different obligation, that only share words with the requirement, or that "
-    "would flag compliant behaviour. Answer in at most 80 words, then end "
-    "with exactly one line: JUDGE: YES or JUDGE: NO")
+    "You check one automated PAM rule against a regulatory requirement. You get the requirement and two example "
+    "records, A and B. Decide which record shows the organisation BREAKING the requirement (doing what it forbids or "
+    "not doing what it demands). Answer NEITHER when neither record says anything about this requirement. The rule "
+    "only checks one specific thing; that is expected. Explain in at most 50 words, then end with exactly one "
+    "line: ANSWER: A, ANSWER: B or ANSWER: NEITHER")
+
+_OP_WORDS = {"equals": "is", "not_equals": "is not", "less_than": "is below", "less_than_or_equal": "is at most",
+             "greater_than": "is above", "greater_than_or_equal": "is at least", "in": "is one of",
+             "not_in": "is none of", "contains": "contains", "exists": "is filled in", "not_exists": "is empty",
+             "older_than_days": "is more than {} days ago", "within_last_days": "is within the last {} days"}
+_OP_NEGATED = {"equals": "not_equals", "not_equals": "equals", "less_than": "greater_than_or_equal",
+               "less_than_or_equal": "greater_than", "greater_than": "less_than_or_equal",
+               "greater_than_or_equal": "less_than", "in": "not_in", "not_in": "in", "exists": "not_exists",
+               "not_exists": "exists", "older_than_days": "within_last_days", "within_last_days": "older_than_days",
+               "contains": "contains"}
+
+
+def _says(p: Predicate, cap: dict[str, Any], etype: str, *, negate: bool = False) -> str:
+    op = _OP_NEGATED[p.operator] if negate else p.operator
+    rhs = (p.parameter.replace("_", " ") if p.parameter else
+           ("" if p.value is None else ", ".join(map(str, p.value)) if isinstance(p.value, list) else str(p.value)))
+    words = _OP_WORDS[op]
+    words = words.format(rhs) if "{}" in words else f"{words} {rhs}".strip()
+    if negate and p.operator == "contains":
+        words = f"does not contain {rhs}"
+    meaning = field_meaning(cap, etype, p.field).get("meaning", "")
+    return f"{p.field} {words}" + (f" ({meaning.split('.')[0][:90]})" if meaning else "")
+
+
+def example_records(spec: RuleSpec, cap: dict[str, Any]) -> tuple[str, str]:
+    """(passing, failing) records in words, derived from the condition: the passing one satisfies every test, the
+    failing one breaks it in the least way (first test negated for all/leaf, every test negated for any)."""
+    node = spec.condition
+    leaves = list(_predicates(node))
+    op = "all" if isinstance(node, Predicate) else node.operator
+    ok = [_says(p, cap, spec.evidence_type) for p in leaves]
+    if op == "none":
+        passing = [_says(p, cap, spec.evidence_type, negate=True) for p in leaves]
+        failing = [ok[0]] + passing[1:]
+    elif op == "any":
+        passing, failing = ok, [_says(p, cap, spec.evidence_type, negate=True) for p in leaves]
+    else:
+        passing, failing = ok, [_says(leaves[0], cap, spec.evidence_type, negate=True)] + ok[1:]
+    scope = "; ".join(_says(p, cap, spec.evidence_type) for p in spec.population.where)
+    head = f"A {spec.evidence_type.replace('_', ' ')} record" + (f" where {scope}" if scope else "") + ": "
+    return head + "; ".join(passing) + ".", head + "; ".join(failing) + "."
 
 _VERDICT = re.compile(r"VERDICT:\s*(TESTABLE\s+([a-z_]+)\.([a-z_]+)|NOT_TESTABLE|PERSON_JUDGES)")
-_JUDGE = re.compile(r"JUDGE:\s*(YES|NO)\b")
+_ANSWER = re.compile(r"ANSWER:\s*\**\s*(A|B|NEITHER)\b")
 
 
 def can_reason(llm: Any) -> bool:
@@ -1229,27 +1291,35 @@ def analyse(llm: Any, req: dict[str, Any], cap: dict[str, Any], etypes: list[str
     return {"text": text[:2000], "verdict": verdict, "evidence_type": etype or None, "field": field or None}
 
 
-def describe_rule(spec: RuleSpec, cap: dict[str, Any]) -> str:
+def describe_rule(spec: RuleSpec, cap: dict[str, Any], *, limitations: bool = True) -> str:
     def pred(p: Any) -> str:
         m = field_meaning(cap, spec.evidence_type, p.field).get("meaning", "")
         rhs = f"parameter {p.parameter}" if p.parameter else ("" if p.value is None else json.dumps(p.value))
         return f"{p.field} {p.operator} {rhs}".strip() + (f" ({m})" if m else "")
     scope = "; ".join(pred(p) for p in spec.population.where) or "all records"
     tests = "; ".join(pred(p) for p in _predicates(spec.condition))
-    return (f"Evidence: {spec.evidence_type} records in the assessment period (by {spec.population.period_field}).\n"
-            f"In scope: {scope}.\nEach in-scope record must satisfy: {tests}.\n"
-            f"Stated limitations: {'; '.join(spec.limitations) or 'none'}.")
+    out = (f"Evidence: {spec.evidence_type} records in the assessment period (by {spec.population.period_field}).\n"
+           f"In scope: {scope}.\nEach in-scope record must satisfy: {tests}.")
+    return out + (f"\nStated limitations: {'; '.join(spec.limitations) or 'none'}." if limitations else "")
 
 
 def judge(llm: Any, req: dict[str, Any], spec: RuleSpec, cap: dict[str, Any], *, grounded: bool) -> dict[str, Any]:
     """Step 3 (no grammar): an independent review of the finished rule against the requirement."""
     note = "" if grounded else ("\nNote: the requirement text does not use the usual words for the tested field; "
                                 "accept only if the meaning clearly matches.")
-    prompt = (f"Requirement: {req.get('translation_en') or req['original_text']}\n\nRule:\n{describe_rule(spec, cap)}"
+    passing, failing = example_records(spec, cap)
+    swap = int(digest_of(spec.model_dump(mode="json")).split(":")[-1][:2], 16) % 2 == 1
+    a, b = (failing, passing) if swap else (passing, failing)
+    prompt = (f"Requirement: {req.get('translation_en') or req['original_text']}\n\nRecord A: {a}\nRecord B: {b}"
               f"{note}")
-    text = llm.generate_text(SYSTEM_JUDGE, prompt, max_tokens=250).content.strip()
-    found = _JUDGE.findall(text)
-    return {"text": text[:1500], "verdict": found[-1] if found else "UNCLEAR"}
+    text = llm.generate_text(SYSTEM_JUDGE, prompt, max_tokens=200).content.strip()
+    found = _ANSWER.findall(text)
+    answer = found[-1] if found else None
+    failing_label = "A" if swap else "B"
+    verdict = ("UNCLEAR" if answer is None else "YES" if answer == failing_label else
+               "NO" if answer == "NEITHER" else "FLAGS_COMPLIANT")
+    return {"text": text[:1500], "verdict": verdict, "answer": answer, "failing_record": failing_label,
+            "records": {"A": a, "B": b}}
 
 
 def grounded_fields(spec: RuleSpec, req: dict[str, Any]) -> list[str]:
@@ -1854,8 +1924,11 @@ def generate(db: CatalogDb, engine: Any, llm: Any, decisions: list[dict[str, Any
                         raise Gap("LLM_ERROR", f"judge: {str(exc)[:280]}") from exc
                     review["spec_digest"] = digest_of(spec.model_dump(mode="json"))
                 if review["verdict"] != "YES":
-                    raise Gap("RULE_SPEC_INVALID", f"review ({review['verdict']}): the rule does not test this "
-                              f"requirement - {review['text'][-500:]}")
+                    why = {"NO": "neither a passing nor a failing record says anything about this requirement",
+                           "FLAGS_COMPLIANT": "the record this rule passes is the one breaking the requirement "
+                                              "(the rule is inverted)",
+                           }.get(review["verdict"], "the review gave no clear answer")
+                    raise Gap("RULE_SPEC_INVALID", f"review ({review['verdict']}): {why} - {review['text'][-500:]}")
                 checks.append("judged_by_model")
             resolution = resolve(spec, req=req, settings=settings)
             missing = [e["name"] for e in resolution if e["value"] is None]

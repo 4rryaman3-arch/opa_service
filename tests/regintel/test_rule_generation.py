@@ -350,9 +350,12 @@ def thinker(system, prompt):
             return "A violating activation has no ticket.\nVERDICT: TESTABLE break_glass_event.ticket_reference"
         return "Unclear which field applies."
     assert system == gr.SYSTEM_JUDGE
+    assert "Stated limitations" not in prompt  # the review does not weigh coverage
     if Q["idle"] in prompt:
-        return "The configured timeout is not the obligation's enforcement here.\nJUDGE: NO"
-    return "A missing ticket means the activation broke the obligation.\nJUDGE: YES"
+        return "Neither record is about this.\nANSWER: NEITHER"
+    # answer with the record whose ticket is empty, wherever OPM placed it
+    return "The activation without a ticket breaks it.\nANSWER: " + (
+        "A" if "Record A: " in prompt and "ticket_reference is empty" in prompt.split("Record B:")[0] else "B")
 
 
 def test_model_analyses_then_writes_then_reviews_and_reuses_its_reasoning(gen):
@@ -411,6 +414,43 @@ def test_generate_rules_job_runs_generation_only_and_reports_progress(gen):
         "action": "generate_rules", "requested_framework_ids": [FW], "tenant_id": "acme",
         "auto_publish_validated_rules": True, "request_key": "gen-only-job-2"})
     assert r.status_code == 422 and r.json()["error"]["code"] == "CAPABILITY_DIGEST_REQUIRED"
+
+
+def test_review_accepts_a_partial_rule_and_rejects_wrong_or_over_strict_ones():
+    from regintel.llm import RawOutput
+
+    class _M:
+        def __init__(self, text):
+            self.text = text
+
+        def generate_text(self, *_a, **_k):
+            return RawOutput(self.text)
+    spec = gr.RuleSpec.model_validate(_spec(1))
+    req = {"original_text": "Every emergency activation must reference a ticket."}
+    passing, failing = gr.example_records(spec, {})
+    assert "ticket_reference is filled in" in passing and "ticket_reference is empty" in failing
+    first = gr.judge(_M("ANSWER: A"), req, spec, {}, grounded=True)
+    fail_label, pass_label = first["failing_record"], "B" if first["failing_record"] == "A" else "A"
+    assert first["records"][fail_label] == failing  # the order is fixed by the spec digest, not always A/B
+    v = lambda t: gr.judge(_M(t), req, spec, {}, grounded=True)["verdict"]  # noqa: E731
+    assert v(f"It checks one part; that record breaks it.\nANSWER: {fail_label}") == "YES"
+    assert v(f"The passing one breaks it.\n**ANSWER:** {pass_label}") == "FLAGS_COMPLIANT"  # inverted rule
+    assert v("Unrelated.\nANSWER: NEITHER") == "NO"
+    assert v("JUDGE: YES") == "UNCLEAR"
+
+
+def test_a_rule_requiring_every_account_disabled_is_rejected_but_dormant_ones_may_be():
+    base = dict(pam_control_id="PAMC-ACCOUNT-LIFECYCLE", evidence_type="privileged_account",
+                assessment_mode="CONFIGURATION_SNAPSHOT", subject_field="account_id",
+                population={"type": "ORGANIZATION_SUPPORTED_ENTITIES", "period_field": "last_used_at", "where": []})
+    alone = gr.RuleSpec.model_validate(_spec(1, **base, condition={"field": "enabled", "operator": "equals",
+                                                                  "value": False}))
+    assert gr.disables_every_account(alone)
+    dormant = gr.RuleSpec.model_validate(_spec(1, **base, parameters={"dormant_after_days": {
+        "type": "integer", "unit": "days"}}, condition={"operator": "any", "where": [
+            {"field": "enabled", "operator": "equals", "value": False},
+            {"field": "last_used_at", "operator": "within_last_days", "parameter": "dormant_after_days"}]}))
+    assert not gr.disables_every_account(dormant)
 
 
 def test_a_not_testable_analysis_that_names_a_test_field_is_written_and_judged():
