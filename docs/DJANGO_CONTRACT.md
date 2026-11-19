@@ -41,7 +41,7 @@ uploads are safe to repeat, because of `request_key`.
 | `catalog:operate` | `POST /admin/uploads`, `/jurisdictions`, `/jurisdictions/memberships`, `/authorities`, `/frameworks`, `/sources`, `/mappings`, jobs `sync`/`extract`/`discover` |
 | `catalog:review` | `POST /admin/sources/{id}/verify`, `/documents/{id}/review`, `/frameworks/{id}/verify`, `/requirements/{id}/translation-review`, `/reviews/{kind}/{id}` |
 | `catalog:publish` | `POST /admin/publish`, `/admin/mappings/{id}/withdraw` |
-| `catalog:automate` | jobs `build_framework` and `prepare_catalog` (`catalog:operate` alone gets 403) |
+| `catalog:automate` | job `prepare_catalog` (`catalog:operate` alone gets 403) |
 | any management scope | every management GET (draft text, document text, job history, attempts) |
 
 `securden-pam` currently holds all of them. Separate per-reviewer credentials are optional
@@ -132,10 +132,11 @@ the cache.
 | `sync` | `source_id` | operate |
 | `extract` | `version_id`, `translate` | operate |
 | `discover` | `jurisdiction`, `include_inherited` (default true), `as_of` | operate |
-| `build_framework` | `framework_id`, opt `version_ids`, `translate`, `as_of` (schema `job_build_framework.schema.json`) | automate |
 | `prepare_catalog` | §5 (schema `job_prepare_catalog.schema.json`) | automate + scope header |
 
-- `build_framework` and `prepare_catalog` also accept optional `languages` (`["en"]`) and `screening`
+- `build_framework` was **removed** (2026-11-19): a submission is 422 `VALIDATION_ERROR`, and a job queued before the
+  upgrade fails with `ACTION_REMOVED`. `prepare_catalog` runs the same pipeline per framework.
+- `prepare_catalog` also accepts optional `languages` (`["en"]`) and `screening`
   (`none` | `pam-keyword-screen-v1`). When omitted, the operator defaults apply (this host: English and PAM
   screening). Results carry `options` and the counts `sections_screened_out`, `sections_already_extracted`,
   `model_calls_extraction` and `drafts_left_unscreened`. Unset fields are left out of the stored payload, so
@@ -179,11 +180,10 @@ the cache.
 - `discover` result: `scope` (the jurisdiction path, with `via` and membership), `authorities`, `frameworks`, `sources`
   by status, child `sync_jobs`, `outcome` (`SYNC_TRIGGERED` | `AWAITING_HUMAN_REVIEW` | `SOURCE_CONFIGURATION_REQUIRED`,
   which is FAILED and has `blockers[0].supply`), and `next_actions`. It never searches the web and always finishes.
-- `build_framework` result: `stages[]` (`resolve`, `sources`, `retrieve`, `document_review`, `extract`,
-  `candidate_review`, `publish`), `sources`, `documents`, `extraction`, `review` (`approved[]`, and `rejected[]` with
-  `problems` and `LEFT_DRAFT_FOR_HUMAN_REVIEW`), `publication`, `coverage`, `readiness`, `counts`, `blockers`,
-  `next_actions`, `statement`. `outcome` is `PUBLISHED`, `NOTHING_TO_PUBLISH`, `FRAMEWORK_NOT_APPROVED` (FAILED) or
-  `SOURCE_CONFIGURATION_REQUIRED` (FAILED). It publishes only its own automated approvals.
+- Per framework, `prepare_catalog` reports in `frameworks[]` what the pipeline did: `documents`, `extraction`,
+  `review` (`approved[]`, and `rejected[]` with `problems` and `LEFT_DRAFT_FOR_HUMAN_REVIEW`), `publication`,
+  `blockers`, and `outcome` (`PUBLISHED`, `NOTHING_TO_PUBLISH`, `FRAMEWORK_NOT_APPROVED`,
+  `SOURCE_CONFIGURATION_REQUIRED`). It publishes only its own automated approvals.
 
 ### 4.5 Reads for review screens
 
@@ -242,8 +242,9 @@ The service returns 202 `{organization_scope, job}`. Submit-time errors: 422 `SC
 - **discovery**: runs over the global frameworks registered for the jurisdiction closure (filtered by `industry` or
   `requested_framework_ids`). It uses registered sources only and never the open internet. Results go into the
   **global** official catalog.
-- Both modes run `build_framework` per framework, then deterministic mapping preparation (REGINTEL.md §7) and
-  publication of the new mappings.
+- Both modes run the automated framework pipeline per framework, then deterministic mapping preparation
+  (REGINTEL.md §7) and publication of the new mappings. Then come LLM-assisted assignment of existing rules (§5.2)
+  and, when it is requested, bounded rule generation (§5.4).
 
 Result: `mode`, `organization_scope`, `status` (`SUCCESS`/`PARTIAL`/`FAILED`), `outcome` (`PREPARED`, `NOTHING_NEW`,
 `NOTHING_TO_PREPARE`), `frameworks[]` (per-framework run summary and `mapping_candidates`), `mappings` (`prepared`,
@@ -390,105 +391,13 @@ For example `{"canonical_id": "AC-7", "clause": "b", "location": "CONTROL_STATEM
 
 The published requirements are an extracted subset. Never present them as the complete control catalog.
 
-### 5.1 Mapping proposals (source-grounded, read-only)
+### 5.1 Mapping proposals (removed 2026-11-19)
 
-A framework can have a proposal set (`regintel/data/mapping_proposals/<framework_id>.json`, today only
-`NIST-SP-800-53-R5`, `proposal_set_id` `nist-sp800-53r5-pam-v1`, status `PROPOSED_UNREVIEWED`). It holds one proposal
-per published requirement: a `CANDIDATE` rule or a structured `REJECTED` reason. Proposals never create, approve or
-publish a mapping.
-
-**`GET /api/v1/catalog/frameworks/{id}/mapping-proposals[?tenant_id]`** (`catalog:read`; with `tenant_id`, send the
-scope header). It validates the set live and returns `{framework_id, proposal_set{proposal_set_id, status,
-prepared_by, source, statement}, policy_bundle_version, collected_rules[], items[], counts{requirements, candidates,
-rejected, eligible_for_publication, by_effective_code}, blocker_codes[], proposal_digest}`. It returns 404
-`NO_PROPOSAL_SET` when the framework has none, and 404 `UNSUPPORTED_FRAMEWORK` for unknown or cross-scope frameworks.
-
-Each item contains:
-- **`citation`**: `{framework_id, requirement_id, document_version_id, section_ref, canonical_id, clause, location,
-  quote}`. The `quote` is the exact stored requirement text. Show it with the canonical ID.
-- **Proposal status**: `proposal_status` is `VALID`, `INVALID` (with `source_problems[]`: canonical ID, clause or
-  quote prefix differs from the stored text) or `NO_PROPOSAL`.
-- **Codes**: `classification` (`CANDIDATE` | `REJECTED`), `proposed_code`, `detail_code` and `engine_gap_codes[]`
-  (the mapping-gaps result). `effective_code` is the code to display. For a candidate it is the live
-  handshake-dependent code of the candidate rule.
-- **`organization_defined[]`** and `rationale`.
-- **Candidate only**: `candidate{rule_id, rule_version, evidence_type, evidence_schema, policy_control_id, coverage,
-  technical_coverage, tests, parameters[{name, provenance, source_text?, note?}], organization_defined_inputs[],
-  required_new_evidence_fields[], validation_problems[], collected, limitations}` and `residual_gaps[]`
-  (`PARTIAL_COVERAGE` for partial coverage).
-- **Rejected only**: `rejection{code, detail_code, reason, rejected_rules[{rule_id, reason}]}`, and optionally
-  `proposed_new_rule` (status `NOT_IMPLEMENTED`).
-- **`publication{eligible, blockers[], route}`**:
-  - `blockers` come from `PROPOSAL_UNREVIEWED`, `PROPOSAL_SOURCE_MISMATCH`, `CANDIDATE_INVALID`,
-    `ORGANIZATION_DEFINED_INPUTS`, `PARAMETER_NOT_IN_SOURCE`, `COLLECTOR_MISSING`, `REJECTED` and `NO_PROPOSAL`.
-  - `route` is `{provenance: "CUSTOMER_POLICY", policy_control_id, resolves: "POLICY_CONTEXT_REQUIRED",
-    result_at_best: "PARTIALLY_RESOLVED"}` when a customer policy version can bind the rule in a plan. Otherwise it
-    is null.
-
-Values used in these fields:
-- **Parameter `provenance`**:
-  - `SOURCE_TEXT` (value stated in the passage; the only provenance a regulatory mapping may use)
-  - `ORGANIZATION_DEFINED` (an `[Assignment]`/`[Selection]`; it must come from a policy context)
-  - `NOT_IN_SOURCE` (the rule needs a value the passage does not address; it must come from a policy context)
-
-  No value is ever taken from an OPA default or a vendor document.
-- **`detail_code`**: `PROCEDURAL_OBLIGATION`, `NO_RULE_FOR_BEHAVIOUR`, `LOOKALIKE_RULE_REJECTED`,
-  `PRODUCT_CAPABILITY`, `PARTIAL_COVERAGE`, `MOBILE_DEVICE_MANAGEMENT`, `DATA_STORE_AUDITING` and
-  `REGISTRATION_PROCESS`.
-
-**Preserved runs (admin).**
-- `POST /api/v1/catalog/admin/frameworks/{id}/mapping-proposals/runs` with body `{tenant_id?}` (`catalog:operate`;
-  scope header required with `tenant_id`). It stores the full result, accepted candidates and rejected proposals
-  with reasons, as an immutable `mapping_proposal_run` row and returns `{run_id, …result}`.
-- `GET …/admin/frameworks/{id}/mapping-proposals/runs` and `GET …/admin/mapping-proposal-runs/{run_id}`
-  (`catalog:read`) read them back. A scoped run is 404 for other scopes. Update and delete are blocked by triggers.
-
-**Migration.** The `mapping_proposal_run` table and its triggers are created idempotently at service start. No
-existing table changes.
-
-**NIST state at catalog version 20** (bundle `2026.11.16-1`; handshake credential_rotation, privileged_account and
-privileged_session, all 1.0):
-
-| Totals | Count |
-|---|---|
-| Requirements | 41 |
-| Candidates | 5 |
-| Rejected | 36 |
-| Eligible for publication | 0 |
-| Effective `POLICY_CONTEXT_REQUIRED` | 1 |
-| Effective `COLLECTOR_MISSING` | 4 |
-| Effective `NO_EXECUTABLE_RULE` | 33 |
-| Effective `OUTSIDE_PAM_SCOPE` | 3 |
-
-No mapping was published, so templates and saved plans are unchanged (readiness `NOT_READY`).
-
-| Requirement | Canonical | Effective code | Candidate / rejection |
-|---|---|---|---|
-| 354 | AU-14 a | POLICY_CONTEXT_REQUIRED | PAM-SESSREC-001 1.0, `privileged_session` 1.0, PARTIAL, route PC-SESSION-RECORDING; `accept_partial_recordings` NOT_IN_SOURCE; users/roles, selection and circumstances ORGANIZATION_DEFINED. Tests "record" only. |
-| 360 | IA-2(6) | COLLECTOR_MISSING | PAM-MFAACC-001 1.0, `privileged_access_authentication` 1.0, PARTIAL; `accepted_methods` ORGANIZATION_DEFINED; PAM-MFACFG-001 rejected (configuration is not MFA-at-access history). |
-| 299 | AC-2 i | COLLECTOR_MISSING | PAM-UNAUTH-001 1.0, `access_authorization` 1.0, PARTIAL (item 1 only). |
-| 326 / 327 | AC-7 a / b | COLLECTOR_MISSING | PAM-AUTHFAIL-001 1.0, `authentication_summary` 1.0, PARTIAL; all three parameters ORGANIZATION_DEFINED or NOT_IN_SOURCE. |
-| 372 | IA-5 i | NO_EXECUTABLE_RULE | PAM-ROTATION-001 rejected (`LOOKALIKE_RULE_REJECTED`); proposed new rule PAM-MEMBERROT-001 NOT_IMPLEMENTED. |
-| 328, 353, 391 | AC-7(2), AU-12(4), IA-5(16) | OUTSIDE_PAM_SCOPE | mobile device management, data-store auditing, registration process |
-| others | | NO_EXECUTABLE_RULE | procedural duty, no rule for the behaviour, product capability, or a look-alike rule rejected |
-
-**New evidence fields needed before the candidates can go beyond partial coverage** (not in schema 1.0; proposals
-only):
-- `privileged_access_authentication`: `access_channel` (LOCAL/NETWORK/REMOTE), `account_class`
-  (PRIVILEGED/NON_PRIVILEGED), `factor_on_separate_device` (boolean), `device_strength_profile`. These cover
-  IA-2(6) (a) and (b).
-- `authentication_summary`: `action_taken` (LOCKED_TIMED, LOCKED_UNTIL_RELEASE, DELAYED, ADMIN_NOTIFIED, OTHER or
-  NONE) and `lock_duration_seconds`. These cover AC-7 b.
-- `shared_account_membership_change` 1.0 (new type, for IA-5 i): `account_id`, `account_kind`,
-  `membership_change_id`, `membership_changed_at`, `change_type`, `authenticator_changed_at`.
-
-**Getting a NIST result today.** The only executable route is AU-14 a through a customer policy. Save a policy
-version with `PC-SESSION-RECORDING`, with the organization's own targets (USER, USER_GROUP or ORGANIZATION) and
-`accept_partial_recordings`. Then `POST /evaluation-templates/NIST-SP-800-53-R5/plan` with `tenant_id`,
-`policy_version_ids` and `reporting_period`, and run `policy_context.executions[].evaluate_request` through
-`/evaluate`. The requirement reports `POLICY_CONTEXT_REQUIRED/PARTIALLY_RESOLVED` or `RESOLVED_BY_POLICY`,
-followed by `PARTIAL_COVERAGE/OPEN`. It is never shown as full AU-14 compliance. The other 40 stay gaps and must
-never be rendered as PASS.
+The static proposal set (`GET /frameworks/{id}/mapping-proposals`, the admin proposal runs) and the vendor
+capability-matrix path were removed. Rules are now assigned automatically by `prepare_catalog`: existing rules
+first (§5.2), then bounded generation (§5.4). Both endpoints return 404, and `capability_document_ids` in a
+`prepare_catalog` body is 422. The legacy `mapping_proposal_run` and `capability_mapping_row` tables stay, untouched,
+for audit.
 
 ### 5.2 LLM-assisted rule assignment (policy `llm-auto-v1`, prompt `llm-map-v1`, 2026-11-17)
 
@@ -504,23 +413,17 @@ This step runs inside `prepare_catalog` after the deterministic recipes and need
 8. scoped publication
 9. readiness recomputation
 
-Create, review and publication are separate audit records. Every mapping it produces is **organization-scoped**, including mappings on global requirements: the inputs (collector declaration, policy, PAM configuration, uploaded matrices) belong to one organization. Other organizations never see them.
+Create, review and publication are separate audit records. Every mapping it produces is **organization-scoped**, including mappings on global requirements: the inputs (collector declaration, organization settings, PAM configuration) belong to one organization. Other organizations never see them.
 
 New `prepare_catalog` body fields, all optional:
 - `tenant_id`: whose collector handshake, policy and PAM configuration apply. The default is the scope's single declared tenant.
-- `capability_document_ids`: a subset of `document_ids` to treat as vendor capability matrices. Other matrices are detected from their tables.
 - `llm_mapping`: default `true`.
+- The fields of §5.4 (`auto_rule_generation`, `auto_publish_validated_rules`, `collector_capability_digest`).
 
-**Capability-mapping documents** (for example the Securden NIST SP 800-53 control mapping matrix):
-- Upload them like any document (`POST /uploads`), then include them in an import job.
-- They are **not regulations**. They never go through `build_framework` and never create requirements or `ORG-` frameworks.
-- Table rows are extracted from PDF (layout mode) or HTML `<table>`s as `{control_id, control_title, requirement_summary, capability_text, source_section}`. They are stored scoped with `source_origin=VENDOR_CAPABILITY_MAPPING`.
-- Rows are resolved against the official control headings of the framework's reviewed global source. The framework is the one requested, the document's own, or a unique ID match. Resolution status is one of:
-  - `RESOLVED`, linked to the published requirements with that canonical control
-  - `OFFICIAL_CONTROL_WITHOUT_PUBLISHED_REQUIREMENT`
-  - `CANONICAL_CONTROL_UNRESOLVED`
-- A row is supplemental capability evidence for the analyst. It is never evidence of compliance.
-- The result carries `capability_documents[]`. Job gaps are `CAPABILITY_TABLE_NOT_FOUND` and `CANONICAL_CONTROL_UNRESOLVED`.
+**Vendor capability matrices are not inputs.** An uploaded document that reads as a vendor control/capability
+matrix (title or stored bytes) is skipped with the job gap `CAPABILITY_DOCUMENT_NOT_SUPPORTED`. It never creates
+requirements, frameworks or mappings. Upload only compliance documents (regulations, standards, the organization's
+own policies). `capability_document_ids` is rejected with 422.
 
 **Verified PAM configuration**:
 - `PUT /pam-configuration` (`catalog:operate`, scope header) takes this body:
@@ -560,7 +463,9 @@ For a framework without control headings, the candidates are the passage's teste
 3. The latest verified PAM configuration snapshot.
 4. Otherwise `PARAMETER_SOURCE_MISSING`.
 
-Vendor capability text can ground only the strict reading of a boolean, never a number. For example, "full video playbacks" gives `accept_partial_recordings=false`, published PARTIAL for the named protocols. "automated rotation schedules" and "accounts not used for a while" establish no interval.
+Vendor documents never ground a value. The source types are `REGULATORY_TEXT`, `POLICY_DOCUMENT` (organization settings) and `PAM_CONFIGURATION`.
+
+When an organization value changes, the replacement mapping is created and the superseded one withdrawn in one transaction, so a failed replacement leaves the old mapping live.
 
 **Validation.** All of these must hold:
 - the rule is a candidate
@@ -577,7 +482,7 @@ Coverage is always published as `PARTIAL`. A `FULL` proposal is recorded as `cov
 
 **Decision record.** One row per (scope, requirement, input digest) goes in `llm_mapping_decision`. Each records the model and digest, prompt and policy versions, raw output, parsed proposal, validation, parameter resolution, outcome and gap code. Rows are preserved; deletion is blocked.
 
-Re-runs with unchanged inputs reuse the recorded decision without a model call, so the job is idempotent. New inputs, such as a PAM configuration snapshot, a policy, a handshake, matrix rows or a model change, lead to a new decision.
+Re-runs with unchanged inputs reuse the recorded decision without a model call, so the job is idempotent. New inputs, such as a PAM configuration snapshot, a policy, a handshake or a model change, lead to a new decision.
 
 The review attestations hold:
 - model, model digest, prompt and policy versions
@@ -586,7 +491,6 @@ The review attestations hold:
 - source requirement
 - rule and version
 - parameters with provenance
-- capability row ids
 - coverage, limitations and applicable population
 - checks passed
 
@@ -611,7 +515,7 @@ The review attestations hold:
 
 **Where results appear.**
 - The job result carries `llm_mapping{decisions[], counts, model, model_digest, …}`.
-- `counts` gains `llm_candidates`, `mappings_validated`, `mappings_published`, `ambiguous_candidates`, `missing_parameters`, `missing_collectors`, `unsupported_requirements` and `capability_rows`.
+- `counts` gains `llm_candidates`, `mappings_validated`, `mappings_published`, `ambiguous_candidates`, `missing_parameters`, `missing_collectors` and `unsupported_requirements` (with §5.4 these are the orchestration totals).
 - `mapping_gaps[]` and `GET /frameworks/{id}/mapping-gaps` carry `llm_mapping` (this organization's latest decision) for each requirement.
 - `executable_rules` counts global mappings plus this organization's mappings only.
 - Published mappings appear in this organization's `/evaluation-templates/{id}/plan`.
@@ -691,6 +595,120 @@ PAM-UNAUTH-001 has no parameters and needs no field. PC-PASSWORD-POLICY and PC-S
 
 **ISO.** ISO licences forbid AI processing of the text. Do not upload ISO standards for automatic assignment.
 
+### 5.4 Automatic rule orchestration: bounded rule generation (2026-11-19)
+
+When no existing rule fits a PAM-applicable requirement (§5.2 decision `NO_EXECUTABLE_RULE` or `LLM_NO_MAP`),
+`prepare_catalog` can generate one. The local LLM proposes only a **JSON RuleSpec 1.0**
+(`schemas/generated_rule_spec_v1.schema.json`). It never writes Rego, expressions, URLs, paths, rule ids or values.
+OPM's own code then validates the spec, resolves its values, compiles it, tests it and (only when asked) activates it.
+
+**Service flags** (both default `false`; operator settings, not job fields):
+`REGINTEL_AUTO_RULE_GENERATION` and `REGINTEL_AUTO_PUBLISH_GENERATED_RULES` (an `OPM_` prefix also works).
+`OPM_REGINTEL_RULE_GENERATION_MIN_CONFIDENCE` defaults to 0.8.
+
+**Job fields** (`prepare_catalog`, all optional):
+
+| Field | Default | Rule |
+|---|---|---|
+| `auto_rule_generation` | `false` | needs the generation flag (else 422 `RULE_GENERATION_DISABLED`) and `llm_mapping: true` |
+| `auto_publish_validated_rules` | `false` | needs `auto_rule_generation`, the publish flag (else 422 `RULE_PUBLICATION_DISABLED`), an explicit `tenant_id` (else 422 `TENANT_REQUIRED`) and `collector_capability_digest` (else 422 `CAPABILITY_DIGEST_REQUIRED`) |
+| `collector_capability_digest` | null | `sha256:<64 hex>`, the `collector_capabilities.digest` the user reviewed; must equal the tenant's current declaration (else 409 `STALE_CAPABILITY_DIGEST`). Only with `auto_rule_generation` (else 422 `INVALID_RULE_GENERATION`) |
+
+Without `auto_publish_validated_rules`, rules that pass every gate are stored as `VALIDATED` and nothing is
+activated or mapped.
+
+**Collector handshake detail** (`PUT /admin/collector-capabilities`). Each `evidence[]` entry may also carry
+`assessment_modes` (`EVENT_HISTORY` and/or `CONFIGURATION_SNAPSHOT`) and `supported_fields` (field names of OPM's
+evidence schema; an unknown field is 422 `UNKNOWN_EVIDENCE_FIELD`). Generated rules are possible **only** for
+evidence types that declare both, and may use only the declared fields. The response carries `evidence_detail`.
+Declarations without the detail keep their earlier digest.
+
+**Gates, in order** (the first failing one is the outcome):
+1. Forbidden content anywhere in the output: code (Rego/Python), URLs, file paths, templates, credential material,
+   claims of full coverage → `RULE_SPEC_INVALID`.
+2. Strict schema (unknown fields or operators) → `RULE_SPEC_INVALID`. `decision: NO_RULE` → `NO_RULE_PROPOSED`.
+   `MANUAL_ASSESSMENT` → `MANUAL_ASSESSMENT_REQUIRED`. Confidence below threshold → `RULE_PROPOSAL_AMBIGUOUS`.
+3. `source_requirement_ids` must be exactly the requirement → `SOURCE_GROUNDING_FAILED`.
+4. Evidence type not declared → `COLLECTOR_MISSING`. Schema version, assessment mode or a field the collector does
+   not populate → `EVIDENCE_SCHEMA_INCOMPATIBLE`.
+5. Fields, operator/type fit and units against OPM's pinned evidence schema; **every numeric or duration threshold must
+   be a declared parameter**, never a literal → `RULE_SPEC_INVALID`.
+6. Parameter values, in this order: the regulatory text (days, hours, minutes or attempts stated once outside
+   `[Assignment: …]`, with the quotation), then an in-force organization setting (`policy_control` binding, §5.3).
+   The model never supplies a value. If neither exists → `PARAMETER_SOURCE_MISSING` (with `parameters_missing`).
+7. Compilation into the fixed interpreter `securden.custom.v1` → `RULE_COMPILATION_FAILED` on error.
+8. Generated cases run against the **real OPA binary** with the service's bundle: passing, failing, empty, empty and
+   incomplete, missing required field (or schema rejection), outside the reporting period, out-of-scope entity and
+   tag, numeric/duration boundaries. Any mismatch → `RULE_TEST_FAILED` (with `test_results`).
+9. Activation (with auto-publish): the pinned digest is re-checked (a change → `EVIDENCE_SCHEMA_INCOMPATIBLE`,
+   "stale"). A different live mapping (human, global, recipe or §5.2) → `POLICY_CONFLICT`, and it is kept.
+
+**Activation.** The rule is written to the evaluator's tenant rule store as an ACTIVE custom rule. Then an
+organization-scoped mapping is created (exactly version `1.0`, coverage `PARTIAL`, no parameters), reviewed
+automatically (`decision_origin=AUTOMATED_LLM`, policy `rule-gen-v1`, attestations with the generated-rule
+provenance) and published scoped. An earlier generated mapping of the same requirement is withdrawn in the same
+transaction as the replacement's creation. If a crash happens between activation and mapping, the next run finds
+the active rule and creates only the mapping.
+
+**Identity.** `rule_id` is `PAM-GEN-<12 hex>`: the digest of organization scope, tenant, canonical structure and
+resolved values. The version is always `1.0`, so different values give a new rule id. An equivalent specification
+reuses the existing rule and mapping. Generated rules never appear for other organizations, in `/rules` or in
+`/pam-controls`.
+
+**Records** (preserved, deletion blocked): `generated_rule_version` holds the spec and its digests, parameter
+resolution, definition, compiled rule, rule digest, `rego_digest` (interpreter plus compiled structure), compiler
+`pam-rulespec-compiler-1.0`, evidence type, schema version and mode, collector digest, source references, model
+provenance, checks, cases and OPA results, bundle version, limitations and status (`VALIDATED`, `ACTIVE`,
+`SUPERSEDED`, `FAILED`). `rule_generation_decision` holds one row per (scope, requirement, input digest) with the
+raw output. A retry with identical inputs re-checks the stored output without calling the model.
+
+**Job result additions.**
+- `rule_generation_decisions[]`: `{requirement_id, decision_id, outcome, gap_code, message, rule_id, rule_version,
+  mapping_id, generated_rule_version_id, evidence_type, evidence_schema_version, assessment_mode, coverage,
+  rule_spec_digest, rego_digest, source_references, limitations, parameters_missing?, replaced_mapping_ids?}`.
+- `rule_generation`: `{compiler_version, prompt_version, policy_version, model, model_digest,
+  collector_capability_digest, publish, counts, mapping_ids, publication}`.
+- `mapping_decisions[]`: the §5.2 decisions, each with `orchestration_outcome` and, when generation ran,
+  `rule_generation{decision_id, outcome, gap_code, rule_id, mapping_id, message}`.
+- `counts` adds `requirements_processed`, `pam_applicable_requirements`, `existing_rules_assigned`,
+  `rule_proposals_created`, `rules_generated`, `rules_activated`, `generated_mappings_published`,
+  `ambiguous_requirements` and `orchestration_outcomes{code: n}`. `mappings_published`, `missing_collectors`,
+  `missing_parameters` and `unsupported_requirements` become the orchestration totals.
+- `stages[]` and `progress` carry `orchestration_stage`: `resolve_documents`, `extract_requirements`,
+  `validate_requirements`, `resolve_canonical_controls`, `match_existing_rules`, `propose_missing_rules`,
+  `validate_rule_specs`, `compile_generated_rules`, `test_generated_rules`, `publish_generated_rules`,
+  `publish_mappings`, `recompute_readiness`, `complete`. Generation stages report `completed` and `total`. Result
+  stages also carry `job_id` and `at`.
+
+**Orchestration outcome per requirement** (`orchestration_outcome`):
+`EXISTING_RULE_ASSIGNED`, `GENERATED_RULE_ACTIVATED`, `GENERATED_RULE_VALIDATED`, `PARAMETER_SOURCE_MISSING`,
+`COLLECTOR_MISSING`, `EVIDENCE_SCHEMA_INCOMPATIBLE`, `RULE_PROPOSAL_AMBIGUOUS`, `RULE_SPEC_INVALID`,
+`RULE_COMPILATION_FAILED`, `RULE_TEST_FAILED`, `SOURCE_GROUNDING_FAILED`, `POLICY_CONFLICT`, `OUTSIDE_PAM_SCOPE`,
+`MANUAL_ASSESSMENT_REQUIRED`. Also seen: `NO_RULE_PROPOSED`, `LLM_OUTPUT_INVALID`, `LLM_ERROR`, and the §5.2 codes
+when generation did not run (`NO_EXECUTABLE_RULE`, `LLM_NO_MAP`, `NON_OPERATIVE_TEXT`, `NOT_MANDATORY`, …).
+Render unknown codes with their `message`.
+
+**Reads.**
+- `GET /frameworks/{id}/mapping-gaps?tenant_id=` items carry `rule_generation` (this organization's latest decision:
+  `outcome`, `gap_code`, `message`, `rule_id`, `mapping_id`, digests). `executable_rules` includes this tenant's
+  active generated rules.
+- Plans (`/evaluation-templates/{id}/plan?tenant_id=`, POST plan) list generated executions with
+  `rule_source: "GENERATED"` and `generated_rule{rule_origin, generated_rule_version_id, spec_digest, rule_digest,
+  rego_digest, compiler_version, evidence_type, evidence_schema_version, assessment_mode,
+  collector_capability_digest, status, source_references, limitations}`. Evaluate them like any custom rule:
+  `POST /evaluate` with the same `tenant_id`, `rule_id`, `rule_version` "1.0" and the declared evidence type.
+- `GET /admin/rule-catalog` (with the scope header) adds this organization's generated rules. Every item has
+  `origin`: `BUILT_IN`, `GENERATED` or `CUSTOM`, and each version's `public()` also carries `origin`.
+
+**What the UI shows.** `GENERATED_RULE_ACTIVATED`: "Assigned (generated rule)", with the rule title, partial
+coverage, its limitations and the source quotation. `GENERATED_RULE_VALIDATED`: "Validated, not activated".
+`RULE_SPEC_INVALID`, `RULE_TEST_FAILED`, `RULE_COMPILATION_FAILED`: "Not covered (automatic rule rejected)".
+`COLLECTOR_MISSING` and `EVIDENCE_SCHEMA_INCOMPATIBLE`: a collector task. `PARAMETER_SOURCE_MISSING`: the settings
+form (§5.3). Generated coverage is always PARTIAL. Never present a framework as fully assessable.
+
+**Bundle.** Bundle `2026.11.19-1` adds optional `period_field` and `required_fields` to the custom-rule input
+(older custom rules are unchanged). Saved plan digests computed against `2026.11.16-1` change once.
+
 ## 6. Read API (`catalog:read`)
 
 | Path under `/api/v1/catalog` | Content |
@@ -762,8 +780,13 @@ register jurisdiction/authority/framework → POST /uploads (legacy) or POST /so
 → draft mapping → [review] mapping → /publish → templates / plan → evaluate
 ```
 
-Automated: approve the framework identity and configure a source (inputs), then run `build_framework`. Rejected drafts
-stay in the manual queue.
+Automated: approve the framework identity and configure a source (inputs), then run `prepare_catalog` (discovery).
+Rejected drafts stay in the manual queue.
+
+Automatic rules (§5.2–§5.4): declare the collector (with `assessment_modes` and `supported_fields`) → save the
+organization settings → `prepare_catalog` with `tenant_id`, `auto_rule_generation`, `auto_publish_validated_rules`
+and the reviewed `collector_capability_digest` → show `mapping_decisions[].orchestration_outcome` → scoped plan →
+evaluate (generated rules too).
 
 Rewrite 1.0 (scoped): `GET /admin/health` (check capabilities) → scoped `POST /uploads` → `prepare_catalog` (import)
 or `prepare_catalog` (discovery) → poll the job → scoped templates/plan → evaluate.
@@ -781,19 +804,23 @@ showing `/pending`; error display keyed on `error.code` that logs `correlation_i
 | `evaluation_templates`, `evaluation_plan` (verifies the digest); module functions `plan_digest`, `effective_parameters` | templates/plans |
 | `catalog_admin_get`, `catalog_admin_iter`, `catalog_admin_action` (never retried) | any management call |
 | `catalog_upload` | legacy upload |
-| `catalog_discover`, `catalog_build_framework`, `catalog_job`, `wait_for_job` | jobs |
+| `catalog_discover`, `catalog_job`, `wait_for_job` | jobs (`catalog_build_framework` was removed) |
 | `jurisdiction_coverage`, `document_attempts` | coverage / attempts |
-| `OpmClient(…, organization_scope=…)` + `upload_document`, `prepare_catalog` | rewrite 1.0 (raise `SCOPE_REQUIRED` without a scope) |
+| `OpmClient(…, organization_scope=…)` + `upload_document`, `prepare_catalog` (also `tenant_id`, `llm_mapping`, `auto_rule_generation`, `auto_publish_validated_rules`, `collector_capability_digest`) | rewrite 1.0 (raise `SCOPE_REQUIRED` without a scope) |
 
 ## 10. Schemas, samples, tests
 
 - Schemas (`scripts/export_schemas.py` → `schemas/`): `evaluation_templates`, `evaluation_plan`, `mapping_create`,
-  `job_build_framework`, `job_prepare_catalog`, plus the evaluation schemas. Samples (synthetic):
+  `job_prepare_catalog`, `generated_rule_spec_v1` (RuleSpec 1.0, §5.4), `collector_capabilities`, plus the
+  evaluation schemas. Samples (synthetic):
   `docs/examples/framework_evaluation/`.
 - Tests: `tests/regintel/test_evaluation_plan.py` (templates/plans/mappings), `test_admin_api.py` (management,
   restart → `INTERRUPTED`, idempotency), `test_discovery.py`, `test_mapping_policy.py` (auto-v2 applicability gate, mapping gaps), `test_automation.py` (rejections, retries,
   scoped publication), `test_rewrite_contract.py` (handshake, scope binding, scoped uploads, import/discovery, isolation,
-  zero checks, retry `NOTHING_NEW`). Full suite: 321 passed, 4 skipped (Caddy E2E).
+  zero checks, retry `NOTHING_NEW`), `test_llm_mapping.py` (§5.2/§5.3, vendor matrices skipped),
+  `test_rule_generation.py` (§5.4: gating, generation, rejections, idempotent retry, interruption, stale digest,
+  isolation, cases against OPA), `tests/test_generated_rule_evaluate.py` (a generated rule through `/evaluate` and a
+  real OPA server). Rego: `policy-tests/custom_v1_period_test.rego`. Full suite: 392 passed, 4 skipped (Caddy E2E).
 
 ## 11. Not provided / limits
 

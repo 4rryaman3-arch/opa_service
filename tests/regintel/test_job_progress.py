@@ -10,7 +10,7 @@ from regintel.admin_api import PREFIX
 from regintel.jobs import Jobs
 from regintel.sources import registry as sources
 from . import support as s
-from .test_automation import EN_URL, auth, env, pipeline_llm, submit_build  # noqa: F401  (env is a fixture)
+from .test_automation import EN_URL, auth, env, pipeline_llm  # noqa: F401  (env is a fixture)
 
 T0 = datetime(2026, 11, 16, 9, 0, tzinfo=timezone.utc)
 
@@ -107,13 +107,18 @@ def test_progress_endpoint_end_to_end(env, monkeypatch):  # noqa: F811
     real_sync = sources.sync_source
     monkeypatch.setattr(automation, 'sync_source', lambda db_, sid, **kw: real_sync(
         db_, sid, **{**kw, 'transport': s.transport({EN_URL: s.ACT_EN_V1}), 'sleep': lambda t: None}))
-    job_id = submit_build(client, tokens, 'automated', 'SYN-EU-ACT', 'progress-key').json()['job']['id']
-    queued = client.get(PREFIX + f'/jobs/{job_id}/progress', headers=auth(tokens, 'automated')).json()
+    scoped = {**auth(tokens, 'automated'), 'X-Securden-Organization-Scope': 'org-progress-test'}
+    submitted = client.post(PREFIX + '/jobs', headers=scoped, json={
+        'action': 'prepare_catalog', 'mode': 'discovery', 'jurisdictions': ['EU'],
+        'requested_framework_ids': ['SYN-EU-ACT'], 'request_key': 'progress-key'})
+    assert submitted.status_code == 202, submitted.text
+    job_id = submitted.json()['job']['id']
+    queued = client.get(PREFIX + f'/jobs/{job_id}/progress', headers=scoped).json()
     assert queued['progress']['status'] == 'QUEUED' and queued['progress']['queue_position'] == 1
     assert pm.QUEUED in queued['eta_reasons']
     assert jobs.run_once()
-    body = client.get(PREFIX + f'/jobs/{job_id}/progress', headers=auth(tokens, 'automated')).json()['progress']
+    body = client.get(PREFIX + f'/jobs/{job_id}/progress', headers=scoped).json()['progress']
     assert body['status'] == 'SUCCEEDED' and body['eta']['seconds'] == 0
     counted = {st['stage']: st for st in body['completed_steps'] if st.get('unit')}
-    assert counted['extract']['unit'] == 'section' and counted['candidate_review']['unit'] == 'candidate'
+    assert counted['extract']['unit'] == 'section' and counted['extract']['framework_id'] == 'SYN-EU-ACT'
     assert client.get(PREFIX + '/jobs/nope/progress', headers=auth(tokens, 'automated')).status_code == 404

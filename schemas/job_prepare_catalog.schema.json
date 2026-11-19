@@ -66,6 +66,49 @@
       "default": null,
       "title": "Document Ids"
     },
+    "tenant_id": {
+      "anyOf": [
+        {
+          "maxLength": 128,
+          "minLength": 1,
+          "pattern": "^[A-Za-z0-9._:-]+$",
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Tenant Id"
+    },
+    "llm_mapping": {
+      "default": true,
+      "title": "Llm Mapping",
+      "type": "boolean"
+    },
+    "auto_rule_generation": {
+      "default": false,
+      "title": "Auto Rule Generation",
+      "type": "boolean"
+    },
+    "auto_publish_validated_rules": {
+      "default": false,
+      "title": "Auto Publish Validated Rules",
+      "type": "boolean"
+    },
+    "collector_capability_digest": {
+      "anyOf": [
+        {
+          "pattern": "^sha256:[0-9a-f]{64}$",
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Collector Capability Digest"
+    },
     "translate": {
       "default": true,
       "title": "Translate",

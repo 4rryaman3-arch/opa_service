@@ -90,6 +90,12 @@ class PolicyVersionNext(PolicyVersionIn):
 class EvidenceSupport(_In):
     evidence_type: Annotated[str, StringConstraints(pattern=r"^[a-z][a-z0-9_]{1,63}$")]
     schema_version: Annotated[str, StringConstraints(pattern=r"^\d{1,3}\.\d{1,3}$")]
+    # Optional detail (needed before OPM activates a GENERATED rule on this evidence type): the assessment
+    # modes the collector can deliver and the record fields it actually populates.
+    assessment_modes: list[Literal["EVENT_HISTORY", "CONFIGURATION_SNAPSHOT"]] | None = Field(
+        default=None, min_length=1, max_length=2)
+    supported_fields: list[Annotated[str, StringConstraints(pattern=r"^[a-z][a-z0-9_]{0,63}$")]] | None = Field(
+        default=None, min_length=1, max_length=64)
 
 
 class CollectorInfo(_In):
@@ -339,7 +345,8 @@ def capabilities(db: CatalogDb, scope: str | None, tenant: str | None) -> dict[s
     if row is None:
         return pc.legacy_capabilities()
     return {"source": "HANDSHAKE", "digest": row["digest"], "declared_at": row["declared_at"],
-            "declared_by": row["declared_by"], "collector": row["collector_info"], "evidence": row["evidence_support"]}
+            "declared_by": row["declared_by"], "collector": row["collector_info"], "evidence": row["evidence_support"],
+            "evidence_detail": row.get("evidence_detail") or {}}
 
 
 def declare_capabilities(db: CatalogDb, *, scope: str, actor: str, body: CollectorCapabilitiesIn
@@ -353,16 +360,30 @@ def declare_capabilities(db: CatalogDb, *, scope: str, actor: str, body: Collect
     types = [e.evidence_type for e in body.evidence]
     if len(types) != len(set(types)):
         raise CatalogError("INVALID_CAPABILITIES", "each evidence_type may be declared once")
+    from app.models.evidence import CUSTOM_RULE_FIELDS
+
     evidence = {e.evidence_type: e.schema_version for e in sorted(body.evidence, key=lambda e: e.evidence_type)}
+    detail: dict[str, Any] = {}
+    for e in body.evidence:
+        if e.supported_fields is not None:
+            unknown_fields = sorted(set(e.supported_fields) - set(CUSTOM_RULE_FIELDS.get(e.evidence_type, {})))
+            if unknown_fields:
+                raise CatalogError("UNKNOWN_EVIDENCE_FIELD", f"{e.evidence_type}: fields not in OPM's evidence schema "
+                                   f"{unknown_fields}", details={"evidence_type": e.evidence_type,
+                                                                 "fields": unknown_fields})
+        if e.assessment_modes is not None or e.supported_fields is not None:
+            detail[e.evidence_type] = {"assessment_modes": sorted(set(e.assessment_modes or [])),
+                                       "supported_fields": sorted(set(e.supported_fields or []))}
     collector = body.collector.model_dump()
-    digest = "sha256:" + digest_of({"collector": collector, "evidence": evidence})
+    # declarations without the optional detail keep their earlier digest
+    digest = "sha256:" + digest_of({"collector": collector, "evidence": evidence, **({"detail": detail} if detail else {})})
     with db.tx():
         latest = capabilities(db, scope, body.tenant_id)
         changed = latest.get("digest") != digest
         if changed:
             db.insert("collector_capability", organization_scope=scope, tenant_id=body.tenant_id,
-                      collector_info=collector, evidence_support=evidence, digest=digest, declared_by=actor,
-                      declared_at=now_iso())
+                      collector_info=collector, evidence_support=evidence, evidence_detail=detail, digest=digest,
+                      declared_by=actor, declared_at=now_iso())
             db.audit(actor, "COLLECTOR_CAPABILITIES_DECLARED", "collector_capability", digest,
                      organization_scope=scope, tenant_id=body.tenant_id)
     return capabilities_view(capabilities(db, scope, body.tenant_id)), changed

@@ -276,6 +276,8 @@ def build_plan(db: CatalogDb, fw: dict[str, Any], when: str, engine: Any, *, ten
                             "evaluate_request": {"rule_id": spec.rule_id, "rule_version": spec.version,
                                                  "policy_settings": {"parameters": m["rule_parameters"]}},
                             "requirement_ids": [], "mapping_ids": [],
+                            **({"generated_rule": prov} if (prov := (getattr(engine, "generated", None) or {}).get(
+                                (spec.rule_id, spec.version))) else {}),
                         })
                         executions[eid]["requirement_ids"].append(req["id"])
                         executions[eid]["mapping_ids"].append(m["id"])
@@ -535,6 +537,9 @@ class PlanExecution(_Out):
         description="Fields to copy into POST /api/v1/evaluate (add tenant_id, item_reference, reporting_period, evidence).")
     requirement_ids: list[int]
     mapping_ids: list[int]
+    generated_rule: dict[str, Any] | None = Field(
+        default=None, description="Only for rule_source GENERATED: RuleSpec/Rego digests, compiler version, "
+                                  "evidence schema, collector digest and source references (regintel.generated_rules).")
 
 
 class PlanAggregation(_Out):

@@ -1,11 +1,11 @@
 """Bounding automated work: PAM keyword screening, language selection, resume
-without repeated model calls, and preloading the offline staging package.
+without repeated model calls.
 Synthetic fixtures only."""
 from __future__ import annotations
 
 import json
 
-from regintel import automation, extraction, preload, screening
+from regintel import automation, extraction, screening
 from regintel.sources import registry as sources
 from . import support as s
 from .test_automation import DE_URL, EN_URL, approved_framework, build, pipeline_llm
@@ -85,53 +85,6 @@ def test_unscreened_drafts_are_left_for_humans(tmp_path):
     db.close()
 
 
-def test_staging_package_is_preloaded_and_never_reextracted(tmp_path):
-    db = s.make_db(tmp_path)
-    s.setup_synthetic(db, verify=False)
-    approved_framework(db)
-    sources.verify_source(db, "syn-gazette", verifier="bob", outcome="VERIFIED", evidence="x" * 40)
-    sources.sync_source(db, "syn-gazette", blob_dir=tmp_path / "blobs", transport=s.transport({EN_URL: s.ACT_EN_V1}))
-    v = db.one("SELECT v.*, d.framework_id, d.language FROM regulatory_document_version v "
-               "JOIN regulatory_document d ON d.id=v.document_id")
-    sections = db.q("SELECT ordinal, section_ref, heading, text FROM document_section WHERE version_id=? "
-                    "ORDER BY ordinal", (v["id"],))
-    rot = next(x for x in sections if s.ROTATION_QUOTE in x["text"])
-    staged = {
-        "framework_id": v["framework_id"], "language": "en", "sha256": v["content_sha256"],
-        "prompt_version": extraction.PROMPT_VERSION, "screening": screening.SCREENING_VERSION,
-        "model": {"model": "gemma3:4b", "version": "sha256:staged", "runtime": "ollama staged"},
-        "sections": sections,
-        "extractions": {str(x["ordinal"]): ({"section_ref": x["section_ref"], "screened_out": False, "rejected": [],
-                                             "requirements": [
-                                                 s.candidate(s.ROTATION_QUOTE, thresholds=["90 days"]),
-                                                 s.candidate("Operators shall never be audited by anyone at all.")]}
-                                            if x["ordinal"] == rot["ordinal"] else
-                                            {"section_ref": x["section_ref"], "screened_out": True,
-                                             "requirements": [], "rejected": []})
-                        for x in sections},
-    }
-    (tmp_path / "stage").mkdir()
-    (tmp_path / "stage" / "SYN-EU-ACT-en.json").write_text(json.dumps(staged), encoding="utf-8")
-    (tmp_path / "stage" / "summary.json").write_text("[]", encoding="utf-8")
-
-    report = preload.import_staging(db, tmp_path / "stage", actor="opm-ops")
-    assert report["drafted"] == 1  # the ungrounded staged candidate is rejected again on import
-    assert report["files"][0]["rejected"] == [f"#{rot['ordinal']}: UNGROUNDED_QUOTE"]
-    draft = db.one("SELECT * FROM regulatory_requirement")
-    assert draft["status"] == "DRAFT" and draft["created_by"] == "llm:gemma3:4b"
-    assert draft["extraction"]["imported_from"] == "staging:SYN-EU-ACT-en.json"
-    attempt = db.one("SELECT * FROM extraction_attempt WHERE kind='EXTRACTION'")
-    assert attempt["raw_response"] is None and "staging package" in attempt["raw_unavailable_reason"]
-    assert preload.import_staging(db, tmp_path / "stage", actor="opm-ops")["drafted"] == 0  # idempotent
-
-    llm = pipeline_llm()
-    result = build(db, tmp_path, llm=llm, screening=screening.SCREENING_VERSION)
-    assert not any(s.ROTATION_QUOTE in p for p in extraction_prompts(llm))  # preloaded section not re-sent
-    assert result["extraction"]["already_extracted"] == 1
-    assert draft["id"] in result["publication"]["requirement_ids"]  # reviewed by the policy like any draft
-    db.close()
-
-
 def test_source_section_screen_replaces_keyword_screen(tmp_path):
     import re
 
@@ -163,7 +116,7 @@ def test_source_section_screen_replaces_keyword_screen(tmp_path):
 
 
 def test_job_payload_omits_unset_bounds():
-    from regintel.admin_api import OPTIONAL_JOB_FIELDS, BuildFramework
-    body = BuildFramework(action="build_framework", framework_id="X", request_key="k" * 8)
+    from regintel.admin_api import OPTIONAL_JOB_FIELDS, PrepareCatalog
+    body = PrepareCatalog(action="prepare_catalog", mode="discovery", jurisdictions=["EU"], request_key="k" * 8)
     payload = body.model_dump(mode="json", exclude={"request_key"})
     assert set(OPTIONAL_JOB_FIELDS) <= set(payload)  # present on the model, stripped by submit()

@@ -51,8 +51,12 @@ values must be declared `SECURDEN_DEFAULT` or `CUSTOMER_POLICY`.
 - Organization-scoped rows (`organization_scope` on framework, source, document, requirement and mapping) come from
   scoped uploads. Global rows have `organization_scope IS NULL`. An LLM-assisted mapping is scoped to the organization
   even on a global requirement (its `mapping_key` then carries a scope digest).
-- `capability_mapping_row` (vendor capability matrix rows, scoped), `pam_configuration_snapshot` (verified collector
-  configuration, immutable) and `llm_mapping_decision` (one per scope/requirement/input digest, never deleted).
+- `pam_configuration_snapshot` (verified collector configuration, immutable), `llm_mapping_decision` (one per
+  scope/requirement/input digest, never deleted), `generated_rule_version` (RuleSpec-generated rules, content
+  immutable, never deleted) and `rule_generation_decision` (one per scope/requirement/input digest, never deleted).
+  `mapping_proposal_run` and `capability_mapping_row` are legacy tables of removed features, kept for audit.
+- One live mapping per (requirement, PAM control, owner): `ux_mapping_live` includes `COALESCE(organization_scope,'')`
+  (rebuilt once at start), so organizations can each hold a scoped mapping on the same global requirement.
 - Review records carry `decision_origin` (`HUMAN`|`AUTOMATED`|`AUTOMATED_LLM`, the last for mappings only), `policy_version` and `attempt_id`.
   `extraction_attempt.kind` is one of `EXTRACTION`, `TRANSLATION`, `REVIEW`, `TRANSLATION_REVIEW`.
 - Migrations are additive and run when catalog-admin starts. Back up `catalog.db` before upgrading.
@@ -159,8 +163,8 @@ verification, approval or publication. The texts are the original acts, not cons
 
 ## 7. Automated pipeline (policy `auto-v3`)
 
-`build_framework` and `prepare_catalog` jobs need `catalog:automate`. They run every stage without waiting for a
-person.
+`prepare_catalog` jobs need `catalog:automate` (the separate `build_framework` job was removed on 2026-11-19; its
+pipeline runs inside `prepare_catalog` per framework). They run every stage without waiting for a person.
 
 | Stage | Automated rule |
 |---|---|
@@ -171,7 +175,8 @@ person.
 | Translation | model translation review **and** a code check that no new numbers appear |
 | Publication | only this job's automated approvals (`publish_scoped`), never the general pending queue |
 | Mappings (`prepare_catalog`) | deterministic recipes (`regintel/mapping_recipes.py`, `pam-recipes-v1`), never model-assigned `pam_domains`. TEXT recipes: privileged wording, any framework. CANONICAL recipes: NIST SP 800-53 control ID, clause and title. A mapping is auto-published only when the passage is `MANDATORY`, operative, in scope, not a licensing/provenance statement and fully parsed, **exactly one** rule and ACTIVE version is resolved, its evidence is collected (`OPM_REGINTEL_BRIDGE_COLLECTED_RULES`, default `PAM-ROTATION-001,PAM-DORMANT-001,PAM-SESSREC-001`), **every** parameter is stated in the passage (one value; no `[Assignment]`; never a rule default or company policy), and no conflicting mapping exists. Session recording binds `accept_partial_recordings=false` only for "all/every/each session". Coverage is always `PARTIAL`, the version is pinned, the override max is the stated value, and the review records recipe, source requirement, rule version, parameters with provenance, coverage and limitations. Every requirement gets a structured decision (`auto_mapping`) and `mapping_gaps` (below); the codes are in DJANGO_CONTRACT.md §5 |
-| LLM-assisted mappings (`prepare_catalog`, `llm-auto-v1`) | `regintel/llm_mapping.py`. The local model is the analyst: per published requirement with semantic candidate rules it proposes one strict-JSON decision. Deterministic code is the gate. It resolves parameters itself (regulatory text, then in-force organization policy, then verified PAM configuration snapshot, else `PARAMETER_SOURCE_MISSING`; vendor capability text only grounds a strict boolean reading) and checks candidate rule, single ACTIVE pinned version, declared collector, confidence threshold, identical bindings with located quotations, rationale/limitations/population, no conflict and ownership. Results are organization-scoped, PARTIAL, reviewed with origin `AUTOMATED_LLM` and recorded in `llm_mapping_decision` (idempotent per input digest). Vendor capability matrices (`regintel/capability_tables.py`) become scoped `capability_mapping_row`s attached to official controls, never requirements. Contract: DJANGO_CONTRACT.md §5.2 |
+| LLM-assisted mappings (`prepare_catalog`, `llm-auto-v1`) | `regintel/llm_mapping.py`. The local model is the analyst: per published requirement with semantic candidate rules it proposes one strict-JSON decision. Deterministic code is the gate. It resolves parameters itself (regulatory text, then in-force organization policy, then verified PAM configuration snapshot, else `PARAMETER_SOURCE_MISSING`) and checks candidate rule, single ACTIVE pinned version, declared collector, confidence threshold, identical bindings with located quotations, rationale/limitations/population, no conflict and ownership. Results are organization-scoped, PARTIAL, reviewed with origin `AUTOMATED_LLM` and recorded in `llm_mapping_decision` (idempotent per input digest). Uploaded vendor capability matrices are skipped (`CAPABILITY_DOCUMENT_NOT_SUPPORTED`). Contract: DJANGO_CONTRACT.md §5.2 |
+| Generated rules (`prepare_catalog`, `rule-gen-v1`, off by default) | `regintel/generated_rules.py`. For requirements no existing rule covers, the model proposes only a JSON RuleSpec 1.0. OPM scans it for forbidden content, validates it strictly against the pinned evidence schema and the collector handshake (`assessment_modes`, `supported_fields`), resolves every threshold from the regulatory text or in-force organization settings (never the model), compiles it for the fixed interpreter `securden.custom.v1` (`pam-rulespec-compiler-1.0`), and runs generated pass/fail/empty/incomplete/missing-field/period/scope/boundary cases through the real OPA binary. Only with both service flags, `auto_publish_validated_rules` and the pinned handshake digest does it activate `PAM-GEN-<12 hex>` for the tenant in the evaluator's rule store and publish an organization-scoped PARTIAL mapping (`AUTOMATED_LLM`). Contract: DJANGO_CONTRACT.md §5.4 |
 | Section coverage | `section_coverage[]` per version: operative vs. recital sections, and operative sections never extracted (`unprocessed_refs`). These become gap `OPERATIVE_SECTIONS_UNPROCESSED`: publishing some requirements does not establish coverage of the rest. Bounded (screened) runs skip recitals entirely (`non_operative`) |
 
 **Mapping gap codes** (technical mapping observations, not determinations of legal applicability):

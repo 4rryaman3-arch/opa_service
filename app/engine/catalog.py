@@ -70,6 +70,8 @@ class RuleVersionSpec:
             "title": self.title,
             "status": self.status,
             "source": self.source,
+            # stable origin class for rule catalog readers: BUILT_IN (bundle), CUSTOM (customer), GENERATED (OPM RuleSpec)
+            "origin": {"CUSTOM": "CUSTOM", "GENERATED": "GENERATED", "DRAFT": "CUSTOM"}.get(self.source, "BUILT_IN"),
             "severity": self.severity,
             "description": self.description,
             "evidence_type": self.evidence_type,

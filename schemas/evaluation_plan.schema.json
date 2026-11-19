@@ -244,6 +244,20 @@
           },
           "title": "Mapping Ids",
           "type": "array"
+        },
+        "generated_rule": {
+          "anyOf": [
+            {
+              "additionalProperties": true,
+              "type": "object"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Only for rule_source GENERATED: RuleSpec/Rego digests, compiler version, evidence schema, collector digest and source references (regintel.generated_rules).",
+          "title": "Generated Rule"
         }
       },
       "required": [

@@ -247,7 +247,8 @@ CREATE TABLE IF NOT EXISTS framework_control_mapping (
     published_seq  INTEGER,
     organization_scope TEXT                -- NULL = global/official; else the owning namespace
 );
--- many-to-many, but only one live mapping per (requirement, control) pair
+-- many-to-many, but only one live mapping per (requirement, control) pair and owner (rebuilt with
+-- COALESCE(organization_scope,'') by CatalogDb._migrate)
 CREATE UNIQUE INDEX IF NOT EXISTS ux_mapping_live ON framework_control_mapping(requirement_id, pam_control_id)
     WHERE status IN ('DRAFT','APPROVED');
 
@@ -431,6 +432,7 @@ CREATE TABLE IF NOT EXISTS collector_capability (
     tenant_id          TEXT NOT NULL,
     collector_info     TEXT NOT NULL,            -- JSON {name, version}
     evidence_support   TEXT NOT NULL,            -- JSON {evidence_type: schema_version}
+    evidence_detail    TEXT NOT NULL DEFAULT '{}', -- JSON {evidence_type: {assessment_modes[], supported_fields[]}}
     digest             TEXT NOT NULL,
     declared_by        TEXT NOT NULL,
     declared_at        TEXT NOT NULL
@@ -449,8 +451,8 @@ CREATE TRIGGER IF NOT EXISTS trg_collector_capability_immutable
 BEFORE UPDATE ON collector_capability
 BEGIN SELECT RAISE(ABORT, 'collector capability declarations are immutable'); END;
 
--- Recorded validation runs of a framework's mapping proposal set (regintel.mapping_proposals):
--- accepted candidates AND rejected proposals with their structured reasons are preserved.
+-- Legacy: validation runs of the removed NIST mapping proposal set. No longer written; kept so
+-- existing immutable audit rows survive (the table and its triggers are never dropped).
 CREATE TABLE IF NOT EXISTS mapping_proposal_run (
     id                    INTEGER PRIMARY KEY AUTOINCREMENT,
     framework_id          TEXT NOT NULL,
@@ -475,7 +477,8 @@ CREATE TRIGGER IF NOT EXISTS trg_proposal_run_preserved
 BEFORE DELETE ON mapping_proposal_run
 BEGIN SELECT RAISE(ABORT, 'mapping proposal runs are preserved'); END;
 
--- Rows of an uploaded vendor capability-mapping document (never regulatory requirements).
+-- Legacy: rows of vendor capability-mapping documents (input removed 2026-11-19; never requirements).
+-- No longer written; kept so existing rows and their audit events survive.
 CREATE TABLE IF NOT EXISTS capability_mapping_row (
     id                     INTEGER PRIMARY KEY AUTOINCREMENT,
     organization_scope     TEXT NOT NULL,
@@ -544,6 +547,82 @@ CREATE TRIGGER IF NOT EXISTS trg_llm_decision_preserved
 BEFORE DELETE ON llm_mapping_decision
 BEGIN SELECT RAISE(ABORT, 'LLM mapping decisions are preserved'); END;
 
+-- Rules OPM generated from a validated RuleSpec (regintel.generated_rules): organization-scoped, immutable.
+-- The spec, its compiled definition, digests, provenance and test receipts never change; only the
+-- lifecycle columns (status, status_reason, activated_at, superseded_by) move forward.
+CREATE TABLE IF NOT EXISTS generated_rule_version (
+    id                      INTEGER PRIMARY KEY AUTOINCREMENT,
+    organization_scope      TEXT NOT NULL,
+    tenant_id               TEXT NOT NULL,
+    rule_id                 TEXT NOT NULL,           -- PAM-GEN-<12 hex>: digest of scope, tenant, canonical structure
+    version                 TEXT NOT NULL,           -- always 1.0: different values give a different rule_id
+    pam_control_id          TEXT NOT NULL REFERENCES pam_control(id),
+    rule_spec               TEXT NOT NULL,           -- JSON canonical RuleSpec (as validated)
+    spec_digest             TEXT NOT NULL,
+    structure_digest        TEXT NOT NULL,
+    parameter_resolution    TEXT NOT NULL,           -- JSON [{name, value, source_type, provenance, ...}]
+    values_digest           TEXT NOT NULL,
+    definition              TEXT NOT NULL,           -- JSON rule definition for the fixed interpreter
+    compiled_rule           TEXT NOT NULL,           -- JSON compiled structure (input.rule)
+    rule_digest             TEXT NOT NULL,
+    rego_digest             TEXT NOT NULL,           -- interpreter package + compiled structure
+    compiler_version        TEXT NOT NULL,
+    evidence_type           TEXT NOT NULL,
+    evidence_schema_version TEXT NOT NULL,
+    assessment_mode         TEXT NOT NULL,
+    collector_digest        TEXT NOT NULL,
+    source_references       TEXT NOT NULL,           -- JSON [{requirement_id, document_version_id, section_ref, quotation}]
+    llm_provenance          TEXT NOT NULL,           -- JSON {model, model_digest, prompt_version, decision_id}
+    validation_result       TEXT NOT NULL,           -- JSON {checks[]}
+    tests                   TEXT NOT NULL,           -- JSON generated cases
+    test_results            TEXT NOT NULL,           -- JSON [{name, expected, got, passed}] from the real OPA binary
+    bundle_version          TEXT NOT NULL,
+    rule_limitations        TEXT NOT NULL,
+    status                  TEXT NOT NULL CHECK (status IN ('VALIDATED','ACTIVE','SUPERSEDED','FAILED')),
+    status_reason           TEXT,
+    superseded_by           INTEGER,
+    created_at              TEXT NOT NULL,
+    activated_at            TEXT,
+    UNIQUE (organization_scope, tenant_id, rule_id, version)
+);
+CREATE INDEX IF NOT EXISTS ix_generated_rule_owner ON generated_rule_version(organization_scope, tenant_id, rule_id);
+CREATE TRIGGER IF NOT EXISTS trg_generated_rule_immutable
+BEFORE UPDATE OF organization_scope, tenant_id, rule_id, version, rule_spec, spec_digest, structure_digest,
+    parameter_resolution, values_digest, definition, compiled_rule, rule_digest, rego_digest, compiler_version,
+    collector_digest, source_references, llm_provenance, validation_result, tests, test_results
+ON generated_rule_version
+BEGIN SELECT RAISE(ABORT, 'generated rule versions are immutable'); END;
+CREATE TRIGGER IF NOT EXISTS trg_generated_rule_preserved
+BEFORE DELETE ON generated_rule_version
+BEGIN SELECT RAISE(ABORT, 'generated rule versions are preserved'); END;
+
+-- One rule-generation decision per (scope, requirement, input digest): raw model output, parsed proposal,
+-- deterministic validation and outcome. Raw output is retained for audit and never executed.
+CREATE TABLE IF NOT EXISTS rule_generation_decision (
+    id                 INTEGER PRIMARY KEY AUTOINCREMENT,
+    organization_scope TEXT NOT NULL,
+    tenant_id          TEXT,
+    requirement_id     INTEGER NOT NULL REFERENCES regulatory_requirement(id),
+    job_id             TEXT,
+    input_digest       TEXT NOT NULL,
+    model              TEXT,
+    model_digest       TEXT,
+    prompt_version     TEXT NOT NULL,
+    compiler_version   TEXT NOT NULL,
+    raw_output         TEXT,
+    llm_proposal       TEXT,
+    llm_validation     TEXT NOT NULL,
+    outcome            TEXT NOT NULL,
+    gap_code           TEXT,
+    generated_rule_version_id INTEGER,
+    mapping_id         INTEGER,
+    created_at         TEXT NOT NULL,
+    UNIQUE (organization_scope, requirement_id, input_digest)
+);
+CREATE TRIGGER IF NOT EXISTS trg_rule_generation_decision_preserved
+BEFORE DELETE ON rule_generation_decision
+BEGIN SELECT RAISE(ABORT, 'rule generation decisions are preserved'); END;
+
 CREATE TABLE IF NOT EXISTS audit_event (
     id          INTEGER PRIMARY KEY AUTOINCREMENT,
     at          TEXT NOT NULL,
@@ -596,6 +675,8 @@ JSON_COLUMNS = frozenset({
     "parsed_json", "validated_json", "validation_errors", "accepted_requirement_ids", "rejected_candidates",
     "document_ids", "policy_reference", "policy_controls", "collector_info", "evidence_support",
     "proposal_result", "config_settings", "llm_proposal", "llm_validation", "parameter_resolution",
+    "evidence_detail", "rule_spec", "compiled_rule", "source_references", "llm_provenance", "validation_result",
+    "test_results", "rule_limitations",
 })
 
 
@@ -681,6 +762,7 @@ class CatalogDb:
             ("regulatory_document", "organization_scope", "TEXT"),
             ("regulatory_requirement", "organization_scope", "TEXT"),
             ("framework_control_mapping", "organization_scope", "TEXT"),
+            ("collector_capability", "evidence_detail", "TEXT NOT NULL DEFAULT '{}'"),
         ):
             if column not in {row[1] for row in self._conn.execute(f"PRAGMA table_info({table})")}:
                 try:
@@ -688,6 +770,15 @@ class CatalogDb:
                 except sqlite3.OperationalError as exc:
                     if "duplicate column" not in str(exc):
                         raise
+        # One live mapping per (requirement, PAM control) *per owner*: organization-scoped mappings of a global
+        # requirement (LLM-assisted or generated) must not collide across organizations.
+        live = self._conn.execute(
+            "SELECT sql FROM sqlite_master WHERE type='index' AND name='ux_mapping_live'").fetchone()
+        if live is None or "organization_scope" not in (live[0] or ""):
+            self._conn.executescript(
+                "DROP INDEX IF EXISTS ux_mapping_live;"
+                "CREATE UNIQUE INDEX ux_mapping_live ON framework_control_mapping(requirement_id, pam_control_id, "
+                "COALESCE(organization_scope, '')) WHERE status IN ('DRAFT','APPROVED');")
         # Older databases restrict extraction_attempt.kind to EXTRACTION/TRANSLATION in a CHECK
         # constraint, which SQLite cannot alter in place: rebuild the table once, keeping all rows.
         ddl_row = self._conn.execute(

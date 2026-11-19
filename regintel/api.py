@@ -29,8 +29,8 @@ from app.models.common import TenantId, format_utc
 from app.security import Principal, authorize_tenant, require_scope
 
 from . import PAM_DOMAINS, SCHEMA_VERSION, coverage, orgscope, plan as planning
-from . import automation, control_ids, mapping_policy, mapping_proposals, policy_contexts as pctx, policy_controls
-from . import policy_plan
+from . import automation, control_ids, mapping_policy, policy_contexts as pctx, policy_controls
+from . import generated_rules, policy_plan
 from .applicability import OrganizationProfile, evaluate
 from .catalog import LAYERS
 from .db import CatalogDb, CatalogError, canonical
@@ -359,7 +359,9 @@ def requirements(
 def pam_controls(db: CatalogDb = Depends(get_db), _: Principal = Depends(_auth)) -> dict:
     items = db.q("SELECT * FROM pam_control ORDER BY id")
     for c in items:
-        c["rule_ids"] = [r["rule_id"] for r in db.q("SELECT rule_id FROM opa_rule_definition WHERE pam_control_id=? ORDER BY rule_id", (c["id"],))]
+        c["rule_ids"] = [r["rule_id"] for r in db.q(  # organization-generated rules are not catalog-wide rules
+            "SELECT rule_id FROM opa_rule_definition WHERE pam_control_id=? AND rule_id NOT LIKE 'PAM-GEN-%' "
+            "ORDER BY rule_id", (c["id"],))]
         c["frameworks_mapped"] = [r["framework_id"] for r in db.q(
             "SELECT DISTINCT r.framework_id FROM framework_control_mapping m JOIN regulatory_requirement r ON r.id=m.requirement_id "
             "WHERE m.pam_control_id=? AND m.status='APPROVED' AND m.published_seq IS NOT NULL AND r.status='APPROVED' "
@@ -463,7 +465,7 @@ def evaluation_templates(
     if not include_unapproved:
         sql += " AND verification_status='VERIFIED'"
     rows = db.q(sql + " ORDER BY id LIMIT ?", args + [limit + 1])
-    engine = request.app.state.catalog
+    engine = generated_rules.engine_for(db, request.app.state.catalog, scope)
     items = []
     for fw in rows[:limit]:
         item = planning.template_summary(planning.build_plan(db, fw, when, engine, org_scope=scope))
@@ -553,15 +555,17 @@ def _plan(framework_id: str, request: Request, body: pctx.PlanRequest, db: Catal
     state = request.app.state
     store = getattr(state, "store", None)
     rule_active = (lambda rule: store.predefined_active(tenant_id, rule)) if store is not None else None
+    # this tenant's activated generated rules (PAM-GEN-*) execute beside the bundle's rules
+    engine = generated_rules.engine_for(db, state.catalog, scope, tenant_id)
     result = planning.build_plan(
-        db, fw, _as_of(as_of), state.catalog, tenant_id=tenant_id, rule_active=rule_active,
+        db, fw, _as_of(as_of), engine, tenant_id=tenant_id, rule_active=rule_active,
         public_requirement=lambda d, r: _requirement_public(d, r, scope), org_scope=scope)
     if body.policy_version_ids:
         assert scope is not None and body.reporting_period is not None
         period = (format_utc(body.reporting_period.start), format_utc(body.reporting_period.end))
         try:
             result["policy_context"] = policy_plan.resolve(
-                db, result, engine=state.catalog, scope=scope, tenant=tenant_id, version_ids=body.policy_version_ids,
+                db, result, engine=engine, scope=scope, tenant=tenant_id, version_ids=body.policy_version_ids,
                 period=period, resolutions=[r.as_dict() for r in body.target_resolutions],
                 cap=pctx.capabilities(db, scope, tenant_id), rule_active=rule_active)
         except CatalogError as exc:
@@ -655,33 +659,18 @@ def _visible_framework(request: Request, db: CatalogDb, principal: Principal, fr
 
 def _gap_items(request: Request, db: CatalogDb, principal: Principal, framework_id: str, tenant_id: str | None):
     _, scope = _visible_framework(request, db, principal, framework_id, tenant_id)
-    engine = request.app.state.catalog
+    engine = generated_rules.engine_for(db, request.app.state.catalog, scope, tenant_id)
     collected, cap = None, None
     if scope is not None and tenant_id is not None:
         _require_policy_schema(db)
         cap = pctx.capabilities(db, scope, tenant_id)
-        collected = policy_controls.collected_rules(cap, engine)
+        collected = generated_rules.collected_with_generated(policy_controls.collected_rules(cap, engine), engine, cap)
     ids = [r["id"] for r in db.q(
         "SELECT id FROM regulatory_requirement WHERE framework_id=? AND status='APPROVED' AND published_seq IS NOT NULL "
         "AND (organization_scope IS NULL" + (" OR organization_scope=?" if scope else "") + ") ORDER BY id",
         (framework_id, *([scope] if scope else [])))]
     items = automation.requirement_mapping_gaps(db, engine, ids, collected=collected, scope=scope)
     return scope, engine, items, collected, cap
-
-
-@router.get("/frameworks/{framework_id}/mapping-proposals")
-def framework_mapping_proposals(framework_id: str, request: Request, tenant_id: TenantId | None = None,
-                                db: CatalogDb = Depends(get_db), principal: Principal = Depends(_auth)) -> dict:
-    """The framework's source-grounded mapping proposals, validated live against the stored text,
-    canonical references, the running bundle and (with ``tenant_id`` + scope) the collector handshake.
-    Read-only: nothing is drafted, approved or published."""
-    scope, engine, items, collected, _ = _gap_items(request, db, principal, framework_id, tenant_id)
-    if mapping_proposals.proposal_set(framework_id) is None:
-        raise ServiceError(404, "NO_PROPOSAL_SET", "No mapping proposal set exists for this framework.")
-    body = mapping_proposals.evaluate(db, engine, framework_id, items,
-                                      collected if collected is not None else mapping_policy.bridge_collected_rules())
-    extra = {"organization_scope": scope, "tenant_id": tenant_id} if scope else {}
-    return _envelope(db, **body, **extra)
 
 
 @router.get("/frameworks/{framework_id}/mapping-gaps")
@@ -735,7 +724,7 @@ def rules(request: Request, db: CatalogDb = Depends(get_db), _: Principal = Depe
     running = request.app.state.catalog
     active = db.one("SELECT version, digest, created_at FROM bundle_version WHERE active=1")
     items = []
-    for d in db.q("SELECT * FROM opa_rule_definition ORDER BY rule_id"):
+    for d in db.q("SELECT * FROM opa_rule_definition WHERE rule_id NOT LIKE 'PAM-GEN-%' ORDER BY rule_id"):
         versions = []
         if d["kind"] == "PREDEFINED_REGO":
             for ver, spec in sorted(running.rules.get(d["rule_id"], {}).items()):

@@ -2,14 +2,13 @@
 
 SYNTHETIC FIXTURES: the official framework here is the synthetic SYN-EU-ACT whose page uses the
 NIST SP 800-53 control layout. The control passages in ``Q`` are verbatim NIST SP 800-53 Rev. 5 text
-(public domain); the capability matrix rows are short excerpts of the Securden NIST SP 800-53 control
-mapping matrix (vendor capability text). The scripted model below stands in for the local LLM; it
+(public domain). Organization-defined values come only from the organization settings (policy
+contexts) or a verified PAM configuration. The scripted model below stands in for the local LLM; it
 deliberately also proposes fabricated values, which the deterministic gate must reject.
 No human approval click happens anywhere in these tests."""
 from __future__ import annotations
 
 import json
-import os
 from contextlib import nullcontext
 from datetime import timedelta
 from pathlib import Path
@@ -17,7 +16,6 @@ from pathlib import Path
 import pytest
 
 from regintel import catalog, extraction, llm_mapping as lm, registry
-from regintel import capability_tables as ct
 from . import support as s
 from .test_rewrite_contract import ADMIN, CATALOG, SCOPE_A, SCOPE_B, env  # noqa: F401  (fixture)
 
@@ -54,36 +52,21 @@ TO PRIVILEGED ACCOUNTS {Q['ia21']} Discussion: Multi-factor authentication.</p>
 first use; f. {Q['ia5f']} and g. Protecting authenticator content.</p>
 </body></html>"""
 
-ROWS = [
-    ("Access Control (AC)", "AC-2 Account Management", "Manage information system accounts.",
-     "Automates account lifecycle management and flags dormant/abandoned accounts. Accounts that have not been used "
-     "for a while can be disabled."),
-    ("Access Control (AC)", "AC-7 Unsuccessful Login Attempts", "Enforce limits on consecutive invalid logon attempts.",
-     "It can track invalid logon attempts, and take actions such as automatically locking accounts."),
-    ("Access Control (AC)", "AC-11 Session Lock", "Lock sessions after inactivity.",
-     "Idle sessions can be terminated automatically."),
-    ("Identification and Authentication (IA)", "IA-2 Identification and Authentication",
-     "Uniquely identify and authenticate users.", "Supports multi-factor authentication for privileged access."),
-    ("Identification and Authentication (IA)", "IA-5 Authenticator Management", "Manage system authenticators.",
-     "Securden enforces complex password generation and automated rotation schedules across servers, databases, "
-     "and network devices."),
-    ("Audit and Accountability (AU)", "AU-14 Session Audit", "Capture comprehensive session recordings.",
-     "Securden records full video playbacks of RDP/VNC/Web sessions and text logs of SSH/Telnet sessions."),
-    ("System and Communications Protection (SC)", "SC-8 Transmission Confidentiality", "Protect transmitted data.",
-     "All traffic is encrypted with TLS."),
-]
-MATRIX = ("<html><body><h1>Securden Compliance Matrix: NIST SP 800-53 Control Mapping (excerpt, test fixture)</h1>"
-          "<p>Securden Capability Alignment with NIST SP 800-53 controls.</p><table>"
-          "<tr><th>Control Family</th><th>Control ID &amp; Title</th><th>NIST SP 800-53 Requirement</th>"
-          "<th>Securden Capability Alignment</th></tr>"
-          + "".join(f"<tr><td>{a}</td><td>{b}</td><td>{c}</td><td>{d}</td></tr>" for a, b, c, d in ROWS)
-          + "</table>" + s.FILLER + "</body></html>")
+# An organization's own upload: a short synthetic standard excerpt for the same framework. Its extraction
+# yields nothing new here; the job then assigns rules to the framework's published requirements.
+UPLOAD = (f"<html><body><h1>SYNTHETIC TEST FIXTURE - organization copy (not a real standard)</h1>"
+          f"<p>AC-11 DEVICE LOCK Control: a. Prevent further access to the system by initiating a device lock.</p>"
+          f"{s.FILLER}</body></html>")
+MATRIX = ("<html><body><h1>Vendor Compliance Matrix: NIST SP 800-53 Control Mapping (synthetic test fixture)</h1>"
+          "<p>Capability alignment with NIST SP 800-53 controls.</p><table><tr><th>Control ID</th><th>Capability"
+          "</th></tr><tr><td>AU-14 Session Audit</td><td>Records full video playbacks.</td></tr></table>"
+          + s.FILLER + "</body></html>")
 
 KEYWORDS = {"PAM-SESSREC-001": "session", "PAM-ROTATION-001": "authenticators", "PAM-DORMANT-001": "inactive",
             "PAM-AUTHFAIL-001": "invalid logon", "PAM-MFAACC-001": "multi-factor"}
 # What the scripted analyst "wants" to bind: honest where a source exists, fabricated where none does.
 FABRICATED = {"max_rotation_age_days": (90, "REGULATORY_TEXT", "automated rotation schedules"),
-              "dormant_after_days": (90, "CAPABILITY_MAPPING", "Accounts that have not been used for a while")}
+              "dormant_after_days": (90, "REGULATORY_TEXT", "Have been inactive for")}
 
 
 def analyst(system, prompt):
@@ -153,7 +136,7 @@ def prepared(env):  # noqa: F811
     ids = official(env)
     handshake(env, SCOPE_A)
     model = Counting(analyst)
-    up = env.upload(MATRIX.encode(), scope=SCOPE_A, key="matrix-up-1", filename="securden-matrix.html")
+    up = env.upload(UPLOAD.encode(), scope=SCOPE_A, key="org-upload-1", framework_id=FW, filename="act.html")
     assert up.status_code == 201, up.text
     doc_ids = up.json()["document_ids"]
     requirements_before = env.db.scalar("SELECT COUNT(*) FROM regulatory_requirement")
@@ -176,31 +159,45 @@ def decisions(result):
     return {d["requirement_id"]: d for d in result["llm_mapping"]["decisions"]}
 
 
-def test_matrix_rows_attach_to_official_controls_and_are_never_requirements(prepared):
-    env, ids, run, _model, doc_ids, before = prepared
-    result = run("llm-map-1")
-    [cap] = result["capability_documents"]
-    assert cap["role"] == "CAPABILITY_MAPPING" and cap["source_origin"] == "VENDOR_CAPABILITY_MAPPING"
-    assert cap["framework_id"] == FW and cap["rows"] == len(ROWS)
-    # no regulatory requirement, no organization framework was created from the matrix
+RECORDING = [{"control_id": "PC-SESSION-RECORDING", "control_version": "1.0",
+              "parameters": {"accept_partial_recordings": False}, "targets": [{"type": "ORGANIZATION"}]}]
+
+
+def confirm_recording(env, key="org-recording-01"):
+    """The 'Sessions > recording' settings section, confirmed and saved as an organization policy context."""
+    r = env.admin.post(ADMIN + "/policy-contexts", headers=env.h(SCOPE_A),
+                       json={**SETTINGS, "request_key": key, "controls": RECORDING})
+    assert r.status_code == 201, r.text
+    return r.json()["policy_version"]["policy_version_id"]
+
+
+def test_vendor_matrices_are_never_extracted_into_requirements(prepared):
+    env, _ids, _run, model, _docs, before = prepared
+    up = env.upload(MATRIX.encode(), scope=SCOPE_A, key="matrix-up-1", filename="vendor-matrix.html")
+    assert up.status_code == 201, up.text
+    from regintel import __main__ as cli
+    with pytest.MonkeyPatch.context() as m:
+        m.setattr(cli, "_llm", lambda: nullcontext(model))
+        r = env.prepare(scope=SCOPE_A, key="matrix-job-1", document_ids=up.json()["document_ids"], tenant_id="acme")
+        env.run_all()
+    job = env.admin.get(ADMIN + f"/jobs/{r.json()['job']['id']}", headers=env.h(SCOPE_A)).json()["job"]
+    assert any(g["code"] == "CAPABILITY_DOCUMENT_NOT_SUPPORTED" for g in (job["result"] or {}).get("gaps", [])), \
+        (job["status"], job["error"], [g["code"] for g in (job["result"] or {}).get("gaps", [])])
     assert env.db.scalar("SELECT COUNT(*) FROM regulatory_requirement") == before
     assert env.db.scalar("SELECT COUNT(*) FROM regulatory_framework WHERE id LIKE 'ORG-%'") == 0
-    rows = {r["control_id"]: r for r in env.db.q("SELECT * FROM capability_mapping_row WHERE organization_scope=?",
-                                                  (SCOPE_A,))}
-    assert len(rows) == len(ROWS)  # one row per control: no duplicates
-    assert rows["AU-14"]["requirement_ids"] == [ids["au14"]] and rows["IA-5"]["requirement_ids"] == [ids["ia5f"]]
-    assert set(rows["AC-2"]["requirement_ids"]) == {ids["ac2a"], ids["ac2_3"]}  # base control covers enhancements
-    assert rows["AU-14"]["official_control_title"] == "SESSION AUDIT"
-    assert rows["AC-11"]["resolution_status"] == "OFFICIAL_CONTROL_WITHOUT_PUBLISHED_REQUIREMENT"
-    assert rows["SC-8"]["resolution_status"] == "CANONICAL_CONTROL_UNRESOLVED"
-    assert all(r["source_origin"] == ct.SOURCE_ORIGIN and r["document_id"] == doc_ids[0] for r in rows.values())
+    # the removed capability_document_ids field is rejected, not silently ignored
+    bad = env.prepare(scope=SCOPE_A, key="matrix-job-2", document_ids=up.json()["document_ids"],
+                      capability_document_ids=up.json()["document_ids"])
+    assert bad.status_code == 422
 
 
 def test_only_grounded_mappings_publish_and_gaps_stay_explicit(prepared):
     env, ids, run, _model, _docs, _before = prepared
+    assert decisions(run("llm-map-0"))[ids["au14"]]["gap_code"] == "PARAMETER_SOURCE_MISSING"  # not confirmed yet
+    pv = confirm_recording(env)
     result = run("llm-map-1")
     d = decisions(result)
-    # AU-14 a: boolean grounded by "full video playbacks" -> PARTIAL, organization-scoped, auto-published
+    # AU-14 a: the confirmed recording setting grounds the boolean -> PARTIAL, organization-scoped, auto-published
     au = d[ids["au14"]]
     assert au["outcome"] == "PUBLISHABLE" and au["rule_id"] == "PAM-SESSREC-001"
     m = env.db.one("SELECT * FROM framework_control_mapping WHERE id=?", (au["mapping_id"],))
@@ -216,7 +213,7 @@ def test_only_grounded_mappings_publish_and_gaps_stay_explicit(prepared):
     assert d[ids["ac2a"]]["gap_code"] == "LLM_NO_MAP"
     c = result["counts"]
     assert (c["mappings_published"], c["missing_parameters"], c["missing_collectors"]) == (1, 2, 2)
-    assert c["llm_candidates"] >= 2 and c["capability_rows"] == len(ROWS)
+    assert c["llm_candidates"] >= 1  # other decisions are reused from the first run (same inputs)
     # create, review and publication are separate audit records; review origin AUTOMATED_LLM with the model
     review = env.db.one("SELECT * FROM review_approval WHERE entity_type='mapping' AND entity_id=?", (str(m["id"]),))
     assert (review["decision_origin"], review["policy_version"]) == ("AUTOMATED_LLM", lm.POLICY_VERSION)
@@ -224,7 +221,7 @@ def test_only_grounded_mappings_publish_and_gaps_stay_explicit(prepared):
     assert att["model"] == "fake-multilingual:test" and att["model_digest"] == "sha256:fixture-weights"
     assert att["prompt_version"] == lm.PROMPT_VERSION and att["coverage_adjusted_from_full"] is True
     [prov] = att["parameter_provenance"]
-    assert prov["source_type"] == "CAPABILITY_MAPPING" and prov["quotation"].lower().startswith("full video playback")
+    assert (prov["source_type"], prov["policy_version_id"]) == ("POLICY_DOCUMENT", pv)
     events = [e["action"] for e in env.db.q("SELECT action FROM audit_event WHERE entity_type IN ('mapping',"
                                             "'framework_control_mapping') AND entity_id=? ORDER BY id", (str(m["id"]),))]
     assert len(events) >= 2
@@ -239,6 +236,7 @@ def test_only_grounded_mappings_publish_and_gaps_stay_explicit(prepared):
 
 def test_plan_isolation_and_idempotent_reruns(prepared):
     env, ids, run, model, _docs, _before = prepared
+    confirm_recording(env)
     first = run("llm-map-1")
     calls = model.map_calls()
     again = run("llm-map-2")
@@ -267,6 +265,7 @@ def test_plan_isolation_and_idempotent_reruns(prepared):
 
 def test_pam_configuration_grounds_customer_policy_thresholds(prepared):
     env, ids, run, _model, _docs, _before = prepared
+    confirm_recording(env)
     run("llm-map-1")
     body = {"tenant_id": "acme", "collector": {"name": "securden-django", "version": "1.0"},
             "captured_at": "2026-11-10T08:00:00Z", "verified": True,
@@ -408,6 +407,7 @@ def test_published_llm_mapping_executes_deterministically_in_opa(prepared, clien
     from ..helpers import auth, recent_period, request, session
 
     env, ids, run, _model, _docs, _before = prepared
+    confirm_recording(env)
     result = run("llm-map-1")
     m = env.db.one("SELECT * FROM framework_control_mapping WHERE id=?", (decisions(result)[ids["au14"]]["mapping_id"],))
     start, end = recent_period()
@@ -426,16 +426,6 @@ def test_published_llm_mapping_executes_deterministically_in_opa(prepared, clien
     assert sorted(map(str, first["violations"])) == sorted(map(str, second["violations"]))
 
 
-@pytest.mark.skipif(not os.environ.get("OPM_TEST_SECURDEN_MATRIX"), reason="set OPM_TEST_SECURDEN_MATRIX to the PDF")
-def test_real_securden_matrix_pdf_extracts_official_rows():
-    rows = ct.extract_rows(Path(os.environ["OPM_TEST_SECURDEN_MATRIX"]).read_bytes(), "pdf")
-    ids = [r["control_id"] for r in rows]
-    assert len(ids) == len(set(ids)) and {"AC-2", "AC-7", "IA-5", "AU-14"} <= set(ids)
-    au = next(r for r in rows if r["control_id"] == "AU-14")
-    assert "full video playbacks" in au["capability_text"]
-    assert next(r for r in rows if r["control_id"] == "AC-7")["control_title"] == "Unsuccessful Login Attempts"
-
-
 def test_validation_rejects_arbitrary_rules_and_versions():
     class Spec:
         status, evidence_type, parameters = "ACTIVE", "privileged_session", {}
@@ -448,7 +438,7 @@ def test_validation_rejects_arbitrary_rules_and_versions():
                 applicable_population="p", coverage="PARTIAL")
     kw = dict(req=req, ref={"canonical_id": "AU-14", "clause": "a"}, cands=["PAM-SESSREC-001"], engine=Engine(),
               cap={"source": "HANDSHAKE"}, collected=("PAM-SESSREC-001",), resolved={"PAM-SESSREC-001": []},
-              rows=[], existing=[], scope=SCOPE_A)
+              existing=[], scope=SCOPE_A)
     gate = lambda **p: lm.validate(None, proposal=lm.Proposal(**{**base, **p}), **kw)  # noqa: E731
     assert gate(rule_id="PAM-EVIL-001", rule_version="1.0")["gap_code"] == "NO_EXECUTABLE_RULE"
     assert gate(rule_id="PAM-SESSREC-001", rule_version="9.9")["gap_code"] == "RULE_VERSION_INVALID"

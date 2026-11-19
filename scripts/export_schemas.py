@@ -21,8 +21,8 @@ from app.engine.compiler import MAX_TOTAL_CONDITIONS, NULL_OPS, OPS_BY_TYPE  # n
 from app.models.api import BatchEvaluateRequest, EvaluateRequest, EvaluationResult  # noqa: E402
 from app.models.custom_rules import CustomRuleDefinition  # noqa: E402
 from app.models.evidence import CUSTOM_RULE_FIELDS, EVIDENCE_MODELS, EVIDENCE_SCHEMA_VERSIONS  # noqa: E402
-from regintel import policy_contexts as pctx, policy_controls as pc  # noqa: E402
-from regintel.admin_api import BuildFramework, MappingCreate, PrepareCatalog  # noqa: E402
+from regintel import generated_rules, policy_contexts as pctx, policy_controls as pc  # noqa: E402
+from regintel.admin_api import MappingCreate, PrepareCatalog  # noqa: E402
 from regintel.plan import PlanResponse, TemplatePage  # noqa: E402
 
 
@@ -37,8 +37,8 @@ def main() -> int:
         "evaluation_templates.schema.json": TemplatePage.model_json_schema(mode="serialization"),
         "evaluation_plan.schema.json": PlanResponse.model_json_schema(mode="serialization"),
         "mapping_create.schema.json": MappingCreate.model_json_schema(),
-        "job_build_framework.schema.json": BuildFramework.model_json_schema(),
         "job_prepare_catalog.schema.json": PrepareCatalog.model_json_schema(),
+        "generated_rule_spec_v1.schema.json": generated_rules.json_schema(),
         "evidence_records.schema.json": {
             "$comment": "One schema per evidence_type; records are validated against the schema of the request's evidence_type.",
             "evidence_schema_versions": EVIDENCE_SCHEMA_VERSIONS,

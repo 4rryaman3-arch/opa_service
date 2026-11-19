@@ -86,7 +86,8 @@ def main() -> int:
     logs.mkdir(exist_ok=True)
     (ROOT / "data").mkdir(exist_ok=True)
     base = dict(os.environ)
-    passthrough = {k: v for k, v in cfg.items() if k.startswith("OPM_") and v}
+    # OPM_* settings plus the rule-generation flags (REGINTEL_AUTO_*, DJANGO_CONTRACT.md §5.4)
+    passthrough = {k: v for k, v in cfg.items() if k.startswith(("OPM_", "REGINTEL_AUTO_")) and v}
 
     # Active policy bundle: bundle-store/ACTIVE (written by `python -m regintel bundle-activate`)
     # names an immutable, tested bundle version; without it the base bundle is used.
@@ -123,6 +124,8 @@ def main() -> int:
             "--no-server-header", "--no-access-log"],
             {**passthrough, "OPM_CATALOG_DB_PATH": str(ROOT / "data/regintel/catalog.db"),
              "OPM_POLICY_BUNDLE_DIR": str(ROOT / bundle_rel),
+             # the evaluator's tenant rule store: activated generated rules (PAM-GEN-*) are written here
+             "OPM_DB_PATH": str(ROOT / "data" / "opm.db"),
              "OPM_API_CLIENTS_FILE": str(ROOT / "secrets/api_clients.json")}))
     procs: list[tuple[str, subprocess.Popen]] = []
 

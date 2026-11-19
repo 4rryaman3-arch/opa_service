@@ -19,7 +19,8 @@
             "PREDEFINED",
             "PUBLISHED",
             "CUSTOM",
-            "DRAFT"
+            "DRAFT",
+            "GENERATED"
           ],
           "title": "Rule Source",
           "type": "string"

@@ -33,6 +33,45 @@
           "pattern": "^\\d{1,3}\\.\\d{1,3}$",
           "title": "Schema Version",
           "type": "string"
+        },
+        "assessment_modes": {
+          "anyOf": [
+            {
+              "items": {
+                "enum": [
+                  "EVENT_HISTORY",
+                  "CONFIGURATION_SNAPSHOT"
+                ],
+                "type": "string"
+              },
+              "maxItems": 2,
+              "minItems": 1,
+              "type": "array"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Assessment Modes"
+        },
+        "supported_fields": {
+          "anyOf": [
+            {
+              "items": {
+                "pattern": "^[a-z][a-z0-9_]{0,63}$",
+                "type": "string"
+              },
+              "maxItems": 64,
+              "minItems": 1,
+              "type": "array"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Supported Fields"
         }
       },
       "required": [

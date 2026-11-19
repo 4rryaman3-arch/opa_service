@@ -84,7 +84,7 @@ Manage it with `scripts/manage_keys.py add|rotate|disable|grant-scope <key_id> �
 | `evaluate`, `rules:read`, `rules:write`, `rules:admin`, `metrics:read` | evaluation API (see EVALUATION_API.md) |
 | `catalog:read` | published catalog, templates, plans |
 | `catalog:operate` / `catalog:review` / `catalog:publish` | catalog management writes (see DJANGO_CONTRACT.md) |
-| `catalog:automate` | automated pipeline jobs (`build_framework`, `prepare_catalog`) |
+| `catalog:automate` | automated pipeline job `prepare_catalog` |
 
 The deployment credential `securden-pam` currently holds every catalog scope, including `catalog:automate`.
 
@@ -127,6 +127,21 @@ and is safe only while the Caddyfile has a single mTLS site.
 - `OPM_REGINTEL_AUTOMATION_LANGUAGES=en` and `OPM_REGINTEL_AUTOMATION_SCREENING=pam-keyword-screen-v1` bound
   automated catalog jobs (REGINTEL.md §7). Remove them to process every language and section, which takes days on
   this GPU.
+- **Automatic rule generation** (DJANGO_CONTRACT.md §5.4) is off unless both the operator and the job ask for it:
+  - `REGINTEL_AUTO_RULE_GENERATION=true` lets `prepare_catalog` jobs with `auto_rule_generation` propose, validate,
+    compile and test rules. They are stored as `VALIDATED` only.
+  - `REGINTEL_AUTO_PUBLISH_GENERATED_RULES=true` also lets jobs with `auto_publish_validated_rules` and a pinned
+    collector digest activate them for one tenant and publish organization-scoped PARTIAL mappings.
+  - `OPM_REGINTEL_RULE_GENERATION_MIN_CONFIDENCE` (default 0.8). Generated cases need the OPA binary
+    (`OPM_REGINTEL_OPA_BINARY`, else `.tools/opa.exe`, else `PATH`). Without it every proposal fails with
+    `RULE_TEST_FAILED`.
+  - Catalog-admin writes activated rules into the evaluator's rule store, so it needs the same `OPM_DB_PATH` as the
+    API (`run_native.py` sets it to `data/opm.db`).
+  - **Startup:** set the flags in `.env` (both processes read them) and restart the stack.
+  - **Rollback:** set the flags to `false` and restart; no new rule is generated or activated. To stop an active
+    generated rule, withdraw its mapping (`POST /admin/mappings/{id}/withdraw`). To stop its evaluation, deactivate
+    it for the tenant (`POST /api/v1/rules/custom/{rule_id}/versions/1.0/deactivate`). Records in
+    `generated_rule_version` and `rule_generation_decision` are preserved by triggers.
 - Windows may show stale "last modified" times on `logs/*.log` while the stack holds them open. Read the tail of the
   file to check activity.
 - Customer rules: SQLite (WAL) `data/opm.db`. Regulatory catalog: `data/regintel/catalog.db`, migrated
@@ -148,7 +163,7 @@ $env:OPM_TEST_OPA_BINARY = (Resolve-Path .tools\opa.exe).Path   # without it ~87
 .\.venv\Scripts\python.exe -m pytest tests -q
 ```
 
-Current result (2026-11-16): **321 passed, 4 skipped**. The skips are the Caddy end-to-end tests; set
+Current result (2026-11-19): **392 passed, 4 skipped**; Rego `opa test policy-bundle policy-tests` 27/27. The skips are the Caddy end-to-end tests; set
 `OPM_TEST_CADDY_BINARY` to run them.
 
 ## 10. Performance (2026-11-12, native, loopback, no TLS)

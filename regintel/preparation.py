@@ -18,8 +18,10 @@ approval. All decisions carry ``decision_origin=AUTOMATED`` + policy version.
 """
 from __future__ import annotations
 
+import hashlib
 import re
 from collections import Counter
+from pathlib import Path
 from typing import Any
 
 from . import automation, coverage, registry
@@ -88,50 +90,74 @@ def _single_tenant(db: CatalogDb, scope: str) -> str | None:
     return tenants[0] if len(tenants) == 1 else None
 
 
-def _capability_framework(db: CatalogDb, doc: dict[str, Any], text: str, requested: list[str]) -> str | None:
-    """The official (global) framework a capability matrix refers to - never a new framework record."""
-    if doc.get("framework_id"):
-        return doc["framework_id"]
-    if len(requested) == 1:
-        return requested[0]
-    pool = requested or [f["id"] for f in db.q("SELECT id FROM regulatory_framework WHERE organization_scope IS NULL")]
-    flat = re.sub(r"[^a-z0-9]", "", normalize((doc.get("title") or "") + " " + text[:4000]).lower())
-    hits = [fid for fid in pool
-            if len(core := re.sub(r"[^a-z0-9]", "", re.sub(r"-R\d+$", "", fid).lower())) >= 6 and core in flat]
-    return hits[0] if len(hits) == 1 else None
+_VENDOR_MATRIX = re.compile(r"\b(?:capabilit\w*|control)\s+mapping(?:\s+matrix)?\b|\bmapping\s+matrix\b", re.I)
 
 
-def _capability_document(db: CatalogDb, doc: dict[str, Any], scope: str, requested: list[str], actor: str,
-                         *, forced: bool, blob_dir: Any) -> dict[str, Any] | None:
-    """Capability-matrix routing: None when the document is regulatory text (normal pipeline)."""
-    from . import capability_tables as ct
+def _vendor_matrix(db: CatalogDb, doc: dict[str, Any], blob_dir: Any) -> bool:
+    """A vendor capability/control mapping matrix is not a regulation: it is never extracted into
+    requirements. (Capability matrices are not supported as an input; customers upload standards.)
+    Checked on the title and the start of the stored upload (verified against its digest)."""
+    head = ""
+    v = db.one("SELECT storage_path, content_sha256 FROM regulatory_document_version WHERE document_id=? "
+               "ORDER BY id DESC LIMIT 1", (doc["id"],))
+    if v and v["storage_path"] and blob_dir is not None:
+        path = Path(blob_dir) / Path(v["storage_path"]).name
+        if path.is_file():
+            data = path.read_bytes()
+            if hashlib.sha256(data).hexdigest() == v["content_sha256"]:
+                head = re.sub(r"<[^>]{0,400}>", " ", data[:20000].decode("utf-8", "ignore"))
+    return bool(_VENDOR_MATRIX.search((doc.get("title") or "") + " " + normalize(head)[:4000]))
 
-    version = db.one("SELECT id FROM regulatory_document_version WHERE document_id=? ORDER BY id DESC LIMIT 1",
-                     (doc["id"],))
-    if version is None:
-        return None
-    loaded = ct.document_bytes(db, version["id"], blob_dir)
-    rows = ct.extract_rows(*loaded) if loaded else []
-    text = " ".join(r["text"] for r in db.q("SELECT text FROM document_section WHERE version_id=? ORDER BY ordinal "
-                                             "LIMIT 5", (version["id"],)))
-    if not forced and not ct.looks_like_capability_mapping(rows, text + " " + (doc.get("title") or "")):
-        return None
-    entry: dict[str, Any] = {"document_id": doc["id"], "version_id": version["id"], "role": "CAPABILITY_MAPPING",
-                             "source_origin": ct.SOURCE_ORIGIN, "rows": 0}
-    if not rows:
-        entry["gap"] = {"code": "CAPABILITY_TABLE_NOT_FOUND", "message": f"document {doc['id']} was marked as a "
-                        "capability mapping but no control-ID table could be extracted from its stored content"}
-        return entry
-    fw_id = _capability_framework(db, doc, text, requested)
-    if fw_id is None or ct.official_index(db, fw_id)[0] is None:
-        entry["gap"] = {"code": "CANONICAL_CONTROL_UNRESOLVED", "message": f"document {doc['id']} is a capability "
-                        "mapping, but no official framework with reviewed control text could be identified; request "
-                        "the framework explicitly. Its rows are not published as requirements."}
-        return entry
-    entry.update(ct.ingest(db, scope=scope, document_id=doc["id"], version_id=version["id"], framework_id=fw_id,
-                           rows=rows, actor=automation.engine_actor(actor)))
-    entry.pop("row_ids", None)
-    return entry
+
+ORCHESTRATION_STAGES = ("resolve_documents", "extract_requirements", "validate_requirements",
+                        "resolve_canonical_controls", "match_existing_rules", "propose_missing_rules",
+                        "validate_rule_specs", "compile_generated_rules", "test_generated_rules",
+                        "publish_generated_rules", "publish_mappings", "recompute_readiness", "complete")
+ORCHESTRATION_STAGE = {
+    "resolve": "resolve_documents", "extract": "extract_requirements", "candidate_review": "validate_requirements",
+    "publish": "validate_requirements", "pipeline": "resolve_canonical_controls", "mappings": "match_existing_rules",
+    "llm_mapping": "match_existing_rules", "llm_mapping_done": "match_existing_rules",
+    "rule_generation": "propose_missing_rules", "readiness": "recompute_readiness",
+    **{s: s for s in ORCHESTRATION_STAGES},
+}
+
+
+_OUTCOME_ALIASES = {"LLM_MAPPING_AMBIGUOUS": "RULE_PROPOSAL_AMBIGUOUS",
+                    "MANUAL_ASSESSMENT_RECOMMENDED": "MANUAL_ASSESSMENT_REQUIRED"}
+_NOT_PAM = ("OUTSIDE_PAM_SCOPE", "NON_OPERATIVE_TEXT", "NOT_MANDATORY")
+_ASSIGNED = ("EXISTING_RULE_ASSIGNED", "GENERATED_RULE_ACTIVATED")
+
+
+def orchestration_outcome(d: dict[str, Any]) -> str:
+    """One outcome code per requirement across existing-rule matching and rule generation (§5.4)."""
+    if d.get("outcome") in ("PUBLISHABLE", "EXISTING"):
+        return "EXISTING_RULE_ASSIGNED"
+    generated = (d.get("rule_generation") or {}).get("outcome")
+    if generated:
+        return _OUTCOME_ALIASES.get(generated, generated)
+    code = d.get("gap_code") or d.get("outcome") or "MANUAL_ASSESSMENT_REQUIRED"
+    return _OUTCOME_ALIASES.get(code, code)
+
+
+def orchestration_counts(candidates: list[int], decisions: list[dict[str, Any]],
+                         generated: dict[str, Any]) -> dict[str, int]:
+    outcomes = Counter(d["orchestration_outcome"] for d in decisions)
+    known = sum(outcomes[c] for c in (*_ASSIGNED, "GENERATED_RULE_VALIDATED", "PARAMETER_SOURCE_MISSING",
+                                      "COLLECTOR_MISSING", "RULE_PROPOSAL_AMBIGUOUS", *_NOT_PAM))
+    return {
+        "requirements_processed": len(candidates),
+        "pam_applicable_requirements": len(decisions) - sum(outcomes[c] for c in _NOT_PAM),
+        "existing_rules_assigned": outcomes["EXISTING_RULE_ASSIGNED"],
+        "rule_proposals_created": generated.get("rule_proposals_created", 0),
+        "rules_generated": generated.get("rules_generated", 0),
+        "rules_activated": generated.get("rules_activated", 0),
+        "generated_mappings_published": generated.get("generated_mappings_published", 0),
+        "missing_collectors": outcomes["COLLECTOR_MISSING"],
+        "missing_parameters": outcomes["PARAMETER_SOURCE_MISSING"],
+        "ambiguous_requirements": outcomes["RULE_PROPOSAL_AMBIGUOUS"],
+        "unsupported_requirements": len(decisions) - known,
+        "orchestration_outcomes": dict(sorted(outcomes.items())),
+    }
 
 
 def prepare_catalog(db: CatalogDb, *, actor: str, scope: str, mode: str, jurisdictions: list[str],
@@ -140,8 +166,12 @@ def prepare_catalog(db: CatalogDb, *, actor: str, scope: str, mode: str, jurisdi
                     document_ids: list[int] | None = None, translate: bool = True, as_of: str | None = None,
                     job_id: str | None = None, transport: Any = None, progress: Any = None,
                     languages: list[str] | None = None, screening: str | None = None,
-                    capability_document_ids: list[int] | None = None, tenant_id: str | None = None,
-                    llm_mapping: bool = True) -> dict[str, Any]:
+                    tenant_id: str | None = None,
+                    llm_mapping: bool = True, auto_rule_generation: bool = False,
+                    auto_publish_validated_rules: bool = False, collector_capability_digest: str | None = None,
+                    bundle_dir: Any = None, rule_store_path: Any = None) -> dict[str, Any]:
+    from . import generated_rules as gr
+
     languages, screening = automation.pipeline_options(languages, screening)
     tenant_id = tenant_id or _single_tenant(db, scope)
     requested = list(requested_framework_ids or [])
@@ -156,7 +186,9 @@ def prepare_catalog(db: CatalogDb, *, actor: str, scope: str, mode: str, jurisdi
     }
 
     def report(stage: str, **info: Any) -> None:
-        result["stages"].append({"stage": stage, **info})
+        # every marker also names its orchestration stage (DJANGO_CONTRACT §5.4) for a stable progress UI
+        info = {"orchestration_stage": ORCHESTRATION_STAGE.get(stage, stage), **info}
+        result["stages"].append({"stage": stage, "job_id": job_id, "at": now_iso(), **info})
         if progress is not None:
             progress(stage, **info)
 
@@ -172,14 +204,11 @@ def prepare_catalog(db: CatalogDb, *, actor: str, scope: str, mode: str, jurisdi
             raise CatalogError("UNKNOWN_DOCUMENT", f"documents not found in this organization scope: "
                                                    f"{sorted(missing + foreign)}")
         by_fw: dict[str, list[int]] = {}
-        capability_docs: list[dict[str, Any]] = []
         for doc in docs:
-            cap_entry = _capability_document(db, doc, scope, requested, actor,
-                                             forced=doc["id"] in set(capability_document_ids or []), blob_dir=blob_dir)
-            if cap_entry is not None:
-                capability_docs.append(cap_entry)
-                if cap_entry.get("gap"):
-                    _gap(gaps, cap_entry["gap"]["code"], cap_entry["gap"]["message"], document_id=doc["id"])
+            if _vendor_matrix(db, doc, blob_dir):
+                _gap(gaps, "CAPABILITY_DOCUMENT_NOT_SUPPORTED", f"document {doc['id']} looks like a vendor capability "
+                     "or control mapping matrix, not a regulation or standard; it was not extracted into requirements",
+                     document_id=doc["id"])
                 continue
             fw_id = doc["framework_id"]
             if not fw_id:
@@ -200,9 +229,7 @@ def prepare_catalog(db: CatalogDb, *, actor: str, scope: str, mode: str, jurisdi
                 "SELECT id FROM regulatory_document_version WHERE document_id=? ORDER BY id", (doc["id"],))]
             by_fw.setdefault(fw_id, []).extend(versions)
         runs = [(fw, sorted(vids), scope) for fw, vids in sorted(by_fw.items())]
-        result["capability_documents"] = capability_docs
         report("resolve", mode=mode, documents=len(docs), frameworks=sorted(by_fw),
-               capability_documents=[c["document_id"] for c in capability_docs],
                unresolved=[g["document_id"] for g in gaps if "document_id" in g])
     elif mode == "discovery":
         codes: list[str] = []
@@ -255,30 +282,21 @@ def prepare_catalog(db: CatalogDb, *, actor: str, scope: str, mode: str, jurisdi
                  framework_id=fw_id, requirement_id=rejected["requirement_id"])
         published = (sub.get("publication") or {}).get("requirement_ids", [])
         published_requirements.extend(published)
-        # also prepare mappings for this framework's previously published, still unmapped requirements
-        pred = "r.organization_scope IS NULL" if run_scope is None else "r.organization_scope=?"
+        # also prepare mappings for this framework's previously published, still unmapped requirements; an
+        # organization's job also covers the framework's global requirements (its mappings stay organization-scoped)
+        pred = "r.organization_scope IS NULL" if run_scope is None else \
+            "(r.organization_scope IS NULL OR r.organization_scope=?)"
         args = [fw_id] if run_scope is None else [fw_id, run_scope]
         entry["mapping_candidates"] = [r["id"] for r in db.q(
             f"SELECT r.id FROM regulatory_requirement r WHERE r.framework_id=? AND {pred} "
             "AND r.status='APPROVED' AND r.published_seq IS NOT NULL ORDER BY r.id", args)]
         result["frameworks"].append(entry)
-    # capability-mapping documents add no requirements: their official framework's published requirements
-    # (global, plus this organization's) become mapping candidates and readiness is computed for it too
-    cap_frameworks = sorted({c["framework_id"] for c in result.get("capability_documents", []) if c.get("framework_id")})
-    for fw_id in cap_frameworks:
-        if any(e["framework_id"] == fw_id for e in result["frameworks"]):
-            continue
-        result["frameworks"].append({
-            "framework_id": fw_id, "status": "SUCCESS", "outcome": "CAPABILITY_EVIDENCE_ATTACHED",
-            "source": "CAPABILITY_MAPPING_DOCUMENT", "mapping_candidates": [r["id"] for r in db.q(
-                "SELECT id FROM regulatory_requirement WHERE framework_id=? AND status='APPROVED' AND published_seq "
-                "IS NOT NULL AND (organization_scope IS NULL OR organization_scope=?) ORDER BY id", (fw_id, scope))]})
     report("pipeline", frameworks=len(runs), published=len(published_requirements))
 
     # ---- deterministic mapping preparation + scoped publication of the mappings ----
     candidates = sorted({rid for e in result["frameworks"] for rid in e["mapping_candidates"]})
-    # An import job never creates global mappings: global requirements of a capability-matrix framework are
-    # handled only by the organization-scoped LLM-assisted step below.
+    # An import job never creates global mappings: global requirements are handled only by the
+    # organization-scoped LLM-assisted step below.
     recipe_candidates = candidates if mode == "discovery" else [
         rid for rid in candidates
         if db.scalar("SELECT organization_scope FROM regulatory_requirement WHERE id=?", (rid,)) == scope]
@@ -328,19 +346,54 @@ def prepare_catalog(db: CatalogDb, *, actor: str, scope: str, mode: str, jurisdi
                 gaps[:] = [x for x in gaps if not (x.get("requirement_id") == d["requirement_id"]
                                                    and x["code"] == "UNSUPPORTED_RULE")]
         result["llm_mapping"] = assigned
-        # every decision (recipe and LLM-assisted) as GET .../mapping-gaps shows it to this organization
-        result["mapping_gaps"] = automation.requirement_mapping_gaps(db, engine, candidates, scope=scope)
         report("llm_mapping_done", **assigned["counts"])
 
-    # ---- recomputed readiness per framework, scoped like the runs ----
+        # ---- bounded rule generation for what no existing rule covers (off unless requested and enabled) ----
+        if auto_rule_generation:
+            generated = gr.generate(
+                db, engine, llm, assigned["decisions"], scope=scope, tenant=tenant_id, actor=actor, job_id=job_id,
+                publish=auto_publish_validated_rules, pinned_digest=collector_capability_digest,
+                bundle_dir=None if bundle_dir is None else Path(bundle_dir),
+                store_path=None if rule_store_path is None else Path(rule_store_path), progress=report)
+            if generated["mapping_ids"]:
+                generated["publication"] = catalog.publish_scoped(db, automation.engine_actor(actor), [],
+                                                                  generated["mapping_ids"], organization_scope=scope)
+                llm_ids = llm_ids + generated["mapping_ids"]
+            result["llm_errors"] += generated["llm_errors"]
+            by_rid = {d["requirement_id"]: d for d in generated["decisions"]}
+            for d in assigned["decisions"]:
+                g = by_rid.get(d["requirement_id"])
+                if g is not None:
+                    d["rule_generation"] = {k: g.get(k) for k in ("decision_id", "outcome", "gap_code", "rule_id",
+                                                                  "mapping_id", "message")}
+                    if g["outcome"] == gr.GENERATED_RULE_ACTIVATED:
+                        gaps[:] = [x for x in gaps if not (x.get("requirement_id") == d["requirement_id"]
+                                                           and x["code"] == "UNSUPPORTED_RULE")]
+                    else:
+                        x = next((x for x in gaps if x.get("requirement_id") == d["requirement_id"]
+                                  and x["code"] == "UNSUPPORTED_RULE"), None)
+                        if x is not None:
+                            x["rule_generation_gap_code"] = g["outcome"]
+            result["rule_generation_decisions"] = generated["decisions"]
+            result["rule_generation"] = {k: v for k, v in generated.items() if k != "decisions"}
+        if llm_ids:
+            report("publish_mappings", completed=len(llm_ids), total=len(llm_ids))
+        result["mapping_decisions"] = [
+            {**d, "orchestration_outcome": orchestration_outcome(d)} for d in assigned["decisions"]]
+        # every decision (recipe, LLM-assisted and generated) as GET .../mapping-gaps shows it to this organization
+        result["mapping_gaps"] = automation.requirement_mapping_gaps(
+            db, gr.engine_for(db, engine, scope, tenant_id), candidates, scope=scope)
+
+    # ---- recomputed readiness per framework, scoped like the runs (generated rules included) ----
     readiness = []
-    for fw_id, _vids, run_scope in runs + [(f, None, scope) for f in cap_frameworks
-                                           if not any(r[0] == f for r in runs)]:
+    view = gr.engine_for(db, engine, scope, tenant_id)
+    for fw_id, _vids, run_scope in runs:
         fw = db.one("SELECT * FROM regulatory_framework WHERE id=?", (fw_id,))
         if engine is not None and fw is not None:
-            summary = planning.template_summary(planning.build_plan(db, fw, when, engine,
+            summary = planning.template_summary(planning.build_plan(db, fw, when, view,
                                                                     org_scope=run_scope if run_scope else scope))
             readiness.append(summary)
+    report("recompute_readiness", completed=len(readiness), total=len(runs))
     result["readiness"] = readiness
     result["coverage"] = {code: coverage.coverage_detail(db, code) for code in jurisdictions}
     result["counts"] = {
@@ -349,15 +402,15 @@ def prepare_catalog(db: CatalogDb, *, actor: str, scope: str, mode: str, jurisdi
         "unmapped_requirements": len(mappings["unmapped"]), "gaps": len(gaps), "llm_errors": result["llm_errors"],
         "mapping_gaps_by_code": dict(sorted(Counter(g["code"] for e in result["mapping_gaps"]
                                                     for g in e["gaps"]).items())),
-        "capability_rows": sum(c.get("rows", 0) for c in result.get("capability_documents", [])),
         **((result.get("llm_mapping") or {}).get("counts") or {
             "llm_candidates": 0, "mappings_validated": 0, "mappings_published": 0, "ambiguous_candidates": 0,
             "missing_parameters": 0, "missing_collectors": 0, "unsupported_requirements": 0}),
+        **orchestration_counts(candidates, result.get("mapping_decisions") or [],
+                               (result.get("rule_generation") or {}).get("counts") or {}),
     }
-    if not runs and cap_frameworks:
-        result["status"] = "PARTIAL" if gaps or result["llm_errors"] else "SUCCESS"
-        result["outcome"] = "PREPARED" if new_ids or llm_ids else "NOTHING_NEW"
-    elif not runs:
+    result["counts"]["mappings_published"] += result["counts"]["generated_mappings_published"]
+    report("complete", completed=1, total=1)
+    if not runs:
         result.update(status="FAILED", outcome="NOTHING_TO_PREPARE",
                       error=(gaps[0]["code"] + ": " + gaps[0]["message"]) if gaps else "nothing to prepare")
     else:

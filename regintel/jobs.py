@@ -15,8 +15,10 @@ from .db import CatalogDb, CatalogError, canonical, now_iso
 
 
 class Jobs:
-    def __init__(self, path: Path, catalog_path: Path, bundle_dir: Path | None = None):
+    def __init__(self, path: Path, catalog_path: Path, bundle_dir: Path | None = None,
+                 rule_store_path: Path | None = None):
         self.path, self.catalog_path, self.bundle_dir = path, catalog_path, bundle_dir
+        self.rule_store_path = rule_store_path  # the evaluator's tenant rule store (generated rules are activated there)
         self.clock = lambda: datetime.now(timezone.utc)  # injectable for tests
         path.parent.mkdir(parents=True, exist_ok=True)
         self.stop_event = threading.Event()
@@ -143,24 +145,13 @@ class Jobs:
                         document_ids=payload.get('document_ids'), translate=payload.get('translate', True),
                         as_of=payload.get('as_of'), job_id=job_id, progress=progress,
                         languages=payload.get('languages'), screening=payload.get('screening'),
-                        capability_document_ids=payload.get('capability_document_ids'),
-                        tenant_id=payload.get('tenant_id'), llm_mapping=payload.get('llm_mapping', True))
-            if payload['action'] == 'build_framework':
-                engine = None
-                if self.bundle_dir is not None:
-                    try:
-                        from app.engine.catalog import Catalog
-                        engine = Catalog.load(self.bundle_dir)
-                    except (OSError, KeyError, ValueError, RuntimeError):
-                        engine = None
-                progress = (lambda stage, **info: self.set_progress(job_id, stage, **info)) if job_id else None
-                with _llm() as llm:
-                    return automation.build_framework(
-                        db, actor=actor, framework_id=payload['framework_id'], llm=llm,
-                        blob_dir=self.catalog_path.parent/'documents', engine=engine,
-                        version_ids=payload.get('version_ids'), translate=payload.get('translate', True),
-                        as_of=payload.get('as_of'), job_id=job_id, progress=progress,
-                        languages=payload.get('languages'), screening=payload.get('screening'))
+                        tenant_id=payload.get('tenant_id'), llm_mapping=payload.get('llm_mapping', True),
+                        auto_rule_generation=payload.get('auto_rule_generation', False),
+                        auto_publish_validated_rules=payload.get('auto_publish_validated_rules', False),
+                        collector_capability_digest=payload.get('collector_capability_digest'),
+                        bundle_dir=self.bundle_dir, rule_store_path=self.rule_store_path)
+            if payload['action'] == 'build_framework':  # removed action; only a job queued before the upgrade
+                raise CatalogError('ACTION_REMOVED', "build_framework was removed; use prepare_catalog")
             def on_section(index, total):
                 if job_id and (index == 1 or index % 5 == 0 or index == total):
                     self.set_progress(job_id, 'extract', version_id=payload['version_id'],

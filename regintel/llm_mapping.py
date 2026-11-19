@@ -16,8 +16,8 @@ Validation (all must hold; otherwise a structured gap is stored):
   * the evidence type matches the rule and is declared by this organization's collector handshake;
   * every rule parameter is resolved deterministically, in this order: regulatory text ->
     approved organization policy (organization-wide, in force) -> verified PAM configuration
-    snapshot; vendor capability text may ground only a boolean that selects the STRICT reading
-    (e.g. "full video playbacks" -> accept_partial_recordings=false), never a number;
+    snapshot; regulatory text may ground only a boolean that selects the STRICT reading
+    (e.g. "full video playbacks" -> accept_partial_recordings=false);
     the model's binding must equal the resolved value and cite the same source, and every
     quotation must occur in the cited source;
   * coverage is PARTIAL (a FULL proposal is recorded and published as PARTIAL), rationale,
@@ -36,7 +36,7 @@ from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, ValidationError
 
-from . import capability_tables as ct, catalog, control_ids, mapping_policy as mp, mapping_recipes as mr
+from . import catalog, control_ids, mapping_policy as mp, mapping_recipes as mr
 from . import pam_configuration, policy_contexts as pctx, policy_controls as pc
 from .db import CatalogDb, CatalogError, canonical, digest_of, now_iso
 from .llm import LlmError
@@ -79,7 +79,7 @@ TEXT_UNITS: dict[str, str] = {
 }
 override_constraint = mr.override_constraint
 
-# Strict readings of a boolean that vendor capability text or regulatory text may ground.
+# Strict readings of a boolean that regulatory text may ground.
 _STRICT_BOOLEANS: dict[str, tuple[bool, re.Pattern[str]]] = {
     "accept_partial_recordings": (False, re.compile(
         r"\b(?:full|complete|entire)\b[^.;]{0,40}\b(?:video\s+)?(?:playbacks?|recordings?)\b"
@@ -93,15 +93,14 @@ SYSTEM_MAP = (
     "when the rule tests the behaviour the requirement mandates; NO_MAP when no candidate does; "
     "MANUAL_ASSESSMENT when a person must assess it. Never invent numbers, durations, thresholds or boolean "
     "choices: every parameter binding must quote its source (REGULATORY_TEXT = the requirement text, "
-    "CAPABILITY_MAPPING = a capability row, POLICY_DOCUMENT or PAM_CONFIGURATION = a listed value). If a "
+    "POLICY_DOCUMENT or PAM_CONFIGURATION = a listed value). If a "
     "parameter has no source, still answer but leave that binding out. coverage is PARTIAL unless the rule "
     "tests every element of the requirement. State limitations and the applicable population.")
 
 _BINDING = {"type": "object", "additionalProperties": False,
             "required": ["name", "value", "source_type"],
             "properties": {"name": {"type": "string"}, "value": {},
-                           "source_type": {"enum": ["REGULATORY_TEXT", "CAPABILITY_MAPPING", "POLICY_DOCUMENT",
-                                                    "PAM_CONFIGURATION"]},
+                           "source_type": {"enum": ["REGULATORY_TEXT", "POLICY_DOCUMENT", "PAM_CONFIGURATION"]},
                            "source_document_id": {"type": ["integer", "null"]},
                            "quotation": {"type": ["string", "null"]}}}
 SCHEMA = {"type": "object", "additionalProperties": False,
@@ -121,7 +120,7 @@ class Binding(BaseModel):
     model_config = ConfigDict(extra="forbid")
     name: str = Field(max_length=80)
     value: bool | int | list[str] | None
-    source_type: Literal["REGULATORY_TEXT", "CAPABILITY_MAPPING", "POLICY_DOCUMENT", "PAM_CONFIGURATION"]
+    source_type: Literal["REGULATORY_TEXT", "POLICY_DOCUMENT", "PAM_CONFIGURATION"]
     source_document_id: int | None = None
     quotation: str | None = Field(default=None, max_length=600)
 
@@ -203,7 +202,7 @@ def _policy_values(db: CatalogDb, scope: str, tenant: str | None, rule_id: str) 
     return out
 
 
-def resolve_parameters(db: CatalogDb, *, req: dict[str, Any], rule_id: str, spec: Any, rows: list[dict[str, Any]],
+def resolve_parameters(db: CatalogDb, *, req: dict[str, Any], rule_id: str, spec: Any,
                        scope: str, tenant: str | None, snapshot: dict[str, Any] | None) -> list[dict[str, Any]]:
     """Deterministic parameter resolution, one entry per rule parameter (value None = PARAMETER_SOURCE_MISSING)."""
     text = req.get("translation_en") or req.get("original_text") or ""
@@ -221,16 +220,6 @@ def resolve_parameters(db: CatalogDb, *, req: dict[str, Any], rule_id: str, spec
             if m and not re.search(r"\bpartial\w*", text, re.I):
                 entry.update(value=strict, source_type="REGULATORY_TEXT", provenance="REGULATORY_TEXT",
                              quotation=m.group(0))
-            else:
-                for row in rows:
-                    m = pattern.search(row["capability_text"] or "")
-                    if m and not re.search(r"\bpartial\w*", row["capability_text"], re.I):
-                        entry.update(value=strict, source_type="CAPABILITY_MAPPING", provenance=ct.SOURCE_ORIGIN,
-                                     quotation=m.group(0), source_document_id=row["document_id"],
-                                     capability_row_id=row["id"],
-                                     note="vendor capability text grounds only the strict reading of this boolean; "
-                                          "it is not evidence of the customer's configuration or compliance")
-                        break
         if entry["value"] is None and name in policy:
             entry.update(**policy[name])
         if entry["value"] is None:
@@ -244,7 +233,7 @@ def resolve_parameters(db: CatalogDb, *, req: dict[str, Any], rule_id: str, spec
     return out
 
 
-def _context(db: CatalogDb, req: dict[str, Any], ref: dict[str, Any], rows: list[dict[str, Any]],
+def _context(db: CatalogDb, req: dict[str, Any], ref: dict[str, Any],
              cands: list[str], engine: Any, cap: dict[str, Any], resolved: dict[str, list[dict[str, Any]]],
              existing: list[dict[str, Any]]) -> str:
     section = db.one("SELECT text FROM document_section WHERE id=?", (req["section_id"],)) if req.get("section_id") else None
@@ -271,9 +260,6 @@ def _context(db: CatalogDb, req: dict[str, Any], ref: dict[str, Any], rows: list
         "framework": {"id": fw.get("id"), "title": fw.get("title")},
         "canonical_control": {k: ref.get(k) for k in ("canonical_id", "control_title", "enhancement_title", "clause")},
         "requirement_text": text, "surrounding_source_text": around,
-        "capability_mappings": [{"source_document_id": r["document_id"], "control_id": r["control_id"],
-                                 "capability_text": r["capability_text"], "source_origin": r["source_origin"]}
-                                for r in rows],
         "candidate_rules": rules,
         "collector_declaration": {"source": cap.get("source"), "evidence": cap.get("evidence") or {}},
         "existing_mappings": [{"rule_id": m["rule_id"], "parameters": m["rule_parameters"]} for m in existing],
@@ -288,7 +274,7 @@ def _gap(code: str, message: str, **extra: Any) -> dict[str, Any]:
 
 def validate(db: CatalogDb, *, req: dict[str, Any], ref: dict[str, Any], proposal: Proposal, cands: list[str],
              engine: Any, cap: dict[str, Any], collected: tuple[str, ...], resolved: dict[str, list[dict[str, Any]]],
-             rows: list[dict[str, Any]], existing: list[dict[str, Any]], scope: str) -> dict[str, Any]:
+             existing: list[dict[str, Any]], scope: str) -> dict[str, Any]:
     checks: list[str] = []
     if proposal.requirement_id != req["id"]:
         return _gap("LLM_OUTPUT_INVALID", f"the proposal is for requirement {proposal.requirement_id}, not {req['id']}")
@@ -335,11 +321,8 @@ def validate(db: CatalogDb, *, req: dict[str, Any], ref: dict[str, Any], proposa
                         f"parameter '{e['name']}': the model bound {getattr(b, 'value', None)!r} from "
                         f"{getattr(b, 'source_type', None)}, the verifiable source gives {e['value']!r} from "
                         f"{e['source_type']}", rule_id=rule)
-        if b.quotation and b.source_type in ("REGULATORY_TEXT", "CAPABILITY_MAPPING"):
-            hay = _norm(req.get("translation_en") or req["original_text"]) if b.source_type == "REGULATORY_TEXT" else \
-                " ".join(_norm(r["capability_text"]) for r in rows
-                         if b.source_document_id in (None, r["document_id"]))
-            if _norm(b.quotation) not in hay:
+        if b.quotation and b.source_type == "REGULATORY_TEXT":
+            if _norm(b.quotation) not in _norm(req.get("translation_en") or req["original_text"]):
                 return _gap("SOURCE_GROUNDING_FAILED", f"quotation for '{e['name']}' does not occur in the cited "
                                                        "source", rule_id=rule)
     checks.append("parameters_grounded")
@@ -359,7 +342,7 @@ def validate(db: CatalogDb, *, req: dict[str, Any], ref: dict[str, Any], proposa
     if same:
         return {"outcome": "EXISTING", "gap_code": None, "mapping_id": same[0]["id"], "rule_id": rule,
                 "rule_version": version, "checks": checks}
-    if req["organization_scope"] not in (None, scope) or any(r["organization_scope"] != scope for r in rows):
+    if req["organization_scope"] not in (None, scope):
         return _gap("VALIDATION_FAILED", "tenant/organization ownership does not match", rule_id=rule)
     checks.append("ownership")
     limitations = [x.strip() for x in proposal.limitations if x.strip()]
@@ -375,9 +358,6 @@ def validate(db: CatalogDb, *, req: dict[str, Any], ref: dict[str, Any], proposa
         elif e["source_type"] == "POLICY_DOCUMENT":
             limitations.append(f"'{e['name']}' = {e['value']!r} comes from organization policy version "
                                f"{e['policy_version_id']} (CUSTOMER_POLICY), not from the regulation.")
-        elif e["source_type"] == "CAPABILITY_MAPPING":
-            limitations.append(f"'{e['name']}' = {e['value']!r} (strict reading) is grounded by vendor capability text "
-                               f"'{e['quotation']}'; that text is not evidence of compliance.")
     return {"outcome": "VALIDATED", "gap_code": None, "rule_id": rule, "rule_version": version,
             "evidence_type": spec.evidence_type, "parameters": params, "parameter_provenance": resolution,
             "coverage": "PARTIAL", "coverage_adjusted": proposal.coverage == "FULL",
@@ -438,9 +418,8 @@ def assign(db: CatalogDb, engine: Any, llm: Any, requirement_ids: list[int], *, 
             continue
         ref = control_ids.annotate(db, [req], _cache=indexes)[rid] if req.get("section_id") else {"status": "NO_SOURCE_SECTION"}
         text = req.get("translation_en") or req["original_text"]
-        rows = ct.rows_for_requirement(db, rid, scope)
         record: dict[str, Any] = {"requirement_id": rid, "canonical_id": ref.get("canonical_id"),
-                                  "clause": ref.get("clause"), "capability_row_ids": [r["id"] for r in rows]}
+                                  "clause": ref.get("clause")}
         pre = None
         problems = mp.assess(db, req, _cache=cache)
         if problems:
@@ -460,11 +439,11 @@ def assign(db: CatalogDb, engine: Any, llm: Any, requirement_ids: list[int], *, 
             active = _active(engine, rule)
             if len(active) == 1:
                 resolved[rule] = resolve_parameters(db, req=req, rule_id=rule, spec=next(iter(active.values())),
-                                                    rows=rows, scope=scope, tenant=tenant, snapshot=snapshot)
+                                                    scope=scope, tenant=tenant, snapshot=snapshot)
         existing = _live_mappings(db, rid, scope)
         digest_input = {"requirement": digest_of({k: req[k] for k in ("id", "original_text", "translation_en",
                                                                        "document_version_id", "section_ref")}),
-                        "ref": ref, "rows": [r["row_digest"] for r in rows], "candidates": cands,
+                        "ref": ref, "candidates": cands,
                         "resolved": resolved, "collector": cap.get("digest"), "collected": list(collected),
                         "prompt": PROMPT_VERSION, "policy": POLICY_VERSION, "model": [model, model_digest],
                         "min_confidence": min_confidence()}
@@ -487,7 +466,7 @@ def assign(db: CatalogDb, engine: Any, llm: Any, requirement_ids: list[int], *, 
             continue
         raw, proposal_json, result = None, None, pre
         if result is None:
-            prompt = _context(db, req, ref, rows, cands, engine, cap, resolved, existing)
+            prompt = _context(db, req, ref, cands, engine, cap, resolved, existing)
             try:
                 raw_out = llm.generate_raw(SYSTEM_MAP, prompt, SCHEMA)
                 raw = raw_out.content
@@ -496,10 +475,10 @@ def assign(db: CatalogDb, engine: Any, llm: Any, requirement_ids: list[int], *, 
                 proposal = Proposal.model_validate(json.loads(raw))
                 proposal_json = proposal.model_dump()
                 result = validate(db, req=req, ref=ref, proposal=proposal, cands=cands, engine=engine, cap=cap,
-                                  collected=tuple(collected), resolved=resolved, rows=rows, existing=existing,
+                                  collected=tuple(collected), resolved=resolved, existing=existing,
                                   scope=scope)
                 if result["outcome"] == "VALIDATED":
-                    result = _publishable(db, engine, req, ref, rows, proposal, result, scope=scope, actor=me, model=model,
+                    result = _publishable(db, engine, req, ref, proposal, result, scope=scope, actor=me, model=model,
                                           model_digest=model_digest, input_digest=input_digest, job_id=job_id)
             except LlmError as exc:
                 out["llm_errors"] += 1
@@ -540,7 +519,7 @@ def assign(db: CatalogDb, engine: Any, llm: Any, requirement_ids: list[int], *, 
     return out
 
 
-def _publishable(db: CatalogDb, engine: Any, req: dict[str, Any], ref: dict[str, Any], rows: list[dict[str, Any]],
+def _publishable(db: CatalogDb, engine: Any, req: dict[str, Any], ref: dict[str, Any],
                  proposal: Proposal, v: dict[str, Any], *, scope: str, actor: str, model: str | None,
                  model_digest: str | None, input_digest: str, job_id: str | None) -> dict[str, Any]:
     """Draft and automatically review a validated proposal (separate audit records); publication follows."""
@@ -551,15 +530,16 @@ def _publishable(db: CatalogDb, engine: Any, req: dict[str, Any], ref: dict[str,
                and not isinstance(e["value"], bool)}
     rationale = (f"AUTOMATED_LLM ({POLICY_VERSION}, prompt {PROMPT_VERSION}, model {model}): "
                  f"{proposal.rationale.strip()} Applicable population: {proposal.applicable_population.strip()}.")
-    replaced = _withdraw(db, v.get("replaces_mapping_ids") or [], actor=actor,
-                         reason=f"AUTOMATED_LLM ({POLICY_VERSION}): replaced because the organization-defined values "
-                                f"it was bound to changed (input {input_digest[:23]})")
-    mid = catalog.create_mapping(
-        db, requirement_id=req["id"], assessment="AUTOMATED", rule_id=v["rule_id"], rule_version_min=v["rule_version"],
-        rule_version_max=v["rule_version"], coverage="PARTIAL", parameters=v["parameters"],
-        override_constraints=numeric, evidence_type=v["evidence_type"], rationale=rationale,
-        limitations="PARTIAL technical coverage. " + " ".join(v["limitations"]), actor=actor,
-        engine_rules=engine.rules, organization_scope=scope)
+    with db.tx():  # replace atomically: the superseded mapping is withdrawn only if its replacement is created
+        replaced = _withdraw(db, v.get("replaces_mapping_ids") or [], actor=actor,
+                             reason=f"AUTOMATED_LLM ({POLICY_VERSION}): replaced because the organization-defined "
+                                    f"values it was bound to changed (input {input_digest[:23]})")
+        mid = catalog.create_mapping(
+            db, requirement_id=req["id"], assessment="AUTOMATED", rule_id=v["rule_id"],
+            rule_version_min=v["rule_version"], rule_version_max=v["rule_version"], coverage="PARTIAL",
+            parameters=v["parameters"], override_constraints=numeric, evidence_type=v["evidence_type"],
+            rationale=rationale, limitations="PARTIAL technical coverage. " + " ".join(v["limitations"]), actor=actor,
+            engine_rules=engine.rules, organization_scope=scope)
     record = {"automated": True, "decision_origin": "AUTOMATED_LLM", "mapping_policy_version": POLICY_VERSION,
               "prompt_version": PROMPT_VERSION, "model": model, "model_digest": model_digest,
               "input_digest": input_digest, "job_id": job_id, "confidence": proposal.confidence,
@@ -568,7 +548,7 @@ def _publishable(db: CatalogDb, engine: Any, req: dict[str, Any], ref: dict[str,
                                      "canonical_id": ref.get("canonical_id"), "clause": ref.get("clause")},
               "rule_id": v["rule_id"], "rule_version": v["rule_version"], "evidence_type": v["evidence_type"],
               "parameters": v["parameters"], "parameter_provenance": v["parameter_provenance"],
-              "capability_row_ids": [r["id"] for r in rows], "coverage": "PARTIAL",
+              "coverage": "PARTIAL",
               "coverage_adjusted_from_full": v["coverage_adjusted"], "limitations": v["limitations"],
               "applicable_population": proposal.applicable_population, "checks": v["checks"],
               "organization_scope_bound": True, "replaces_mapping_ids": replaced}

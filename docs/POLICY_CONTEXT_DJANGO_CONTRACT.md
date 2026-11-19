@@ -2,8 +2,8 @@
 
 Contract for the Django service. It covers saving an organization's own PAM policy,
 declaring which evidence the collector produces, binding policy to evaluation plans, and
-running and reporting the resulting executions. Control catalog and bundle version
-`2026.11.16-1`. Every example below was captured from a real OPM run on synthetic
+running and reporting the resulting executions. Control catalog version `2026.11.16-1`;
+bundle `2026.11.19-1` (examples were captured with bundle `2026.11.16-1`). Every example below was captured from a real OPM run on synthetic
 fixture data. IDs, digests and timestamps will differ in your environment.
 
 Transport, the error envelope, mTLS and bearer credentials are unchanged from
@@ -912,7 +912,7 @@ policy.
 
 1. **Get the new OPM build onto the stack.** Deploy it, start the catalog management
    process once (it creates the policy tables), and confirm `/ready` reports bundle
-   `2026.11.16-1`. Saved plan digests from the earlier bundle become stale; that's
+   `2026.11.19-1`. Saved plan digests from the earlier bundle become stale; that's
    expected.
 2. **Send the handshake.** `PUT /admin/collector-capabilities` with exactly the evidence
    types the collector produces today: `credential_rotation`, `privileged_session` and

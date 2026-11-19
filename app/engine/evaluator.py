@@ -89,6 +89,12 @@ class _OpaDecision(_Strict):
     as_of: str
 
 
+# Tenant-scoped rule namespaces resolved from the rule store: customer rules (CUST-) and rules OPM generated
+# from a validated RuleSpec (PAM-GEN-, regintel.generated_rules). Both run in the fixed interpreter.
+GENERATED_RULE_PREFIX = "PAM-GEN-"
+TENANT_RULE_PREFIXES = ("CUST-", GENERATED_RULE_PREFIX)
+
+
 def custom_spec_from_row(row: dict[str, Any]) -> RuleVersionSpec:
     d = row["definition"]
     from pydantic import TypeAdapter
@@ -112,7 +118,7 @@ def custom_spec_from_row(row: dict[str, Any]) -> RuleVersionSpec:
         framework_mappings=tuple(d.get("framework_mappings", [])),
         remediation=d.get("remediation", ""),
         subject_field=d["subject_field"],
-        source="CUSTOM",
+        source="GENERATED" if d["rule_id"].startswith(GENERATED_RULE_PREFIX) else "CUSTOM",
         compiled=row["compiled"],
     )
 
@@ -133,7 +139,7 @@ class Evaluator:
         mode = item.evaluation_mode
         allowed = {"CURRENT": {"ACTIVE"}, "HISTORICAL": {"ACTIVE", "RETIRED", "INACTIVE"}}[mode]
 
-        if item.rule_id.startswith("CUST-"):
+        if item.rule_id.startswith(TENANT_RULE_PREFIXES):  # customer rules and OPM-generated rules
             if item.rule_version is not None:
                 row = self.store.get_custom(tenant_id, item.rule_id, item.rule_version)
                 candidates = [row] if row else []

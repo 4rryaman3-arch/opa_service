@@ -1,4 +1,4 @@
-"""Automated requirements pipeline: build_framework jobs, automation policy,
+"""Automated requirements pipeline (automation.build_framework, run inside prepare_catalog), automation policy,
 decision origins and scoped publication. Synthetic fixtures only."""
 from __future__ import annotations
 
@@ -285,18 +285,16 @@ def auth(tokens, name):
     return {'Authorization': 'Bearer ' + tokens[name]}
 
 
-def submit_build(client, tokens, name, framework_id, key, **extra):
-    return client.post(PREFIX + '/jobs', headers=auth(tokens, name),
-                       json={'action': 'build_framework', 'framework_id': framework_id,
-                             'request_key': key, **extra})
-
-
-def test_build_framework_requires_the_automation_scope(env):
+def test_build_framework_action_is_removed_and_prepare_catalog_needs_the_automation_scope(env):
     client, db, tokens, jobs = env
-    response = submit_build(client, tokens, 'operator', 'SYN-EU-ACT', 'auto-key-denied')
-    assert response.status_code == 403
-    assert "catalog:automate" in response.json()['error']['message']
-    assert submit_build(client, tokens, 'automated', 'NOPE', 'auto-key-missing').status_code == 404
+    removed = client.post(PREFIX + '/jobs', headers=auth(tokens, 'automated'),
+                          json={'action': 'build_framework', 'framework_id': 'SYN-EU-ACT',
+                                'request_key': 'auto-key-removed'})
+    assert removed.status_code == 422  # use prepare_catalog
+    denied = client.post(PREFIX + '/jobs', headers=auth(tokens, 'operator'),
+                         json={'action': 'prepare_catalog', 'mode': 'discovery', 'jurisdictions': ['EU'],
+                               'request_key': 'auto-key-denied'})
+    assert denied.status_code == 403 and "catalog:automate" in denied.json()['error']['message']
     assert jobs.list() == []
     # the capability is advertised so Django can show or hide the trigger
     health = client.get(PREFIX + '/health', headers=auth(tokens, 'automated')).json()
@@ -307,51 +305,3 @@ def test_build_framework_requires_the_automation_scope(env):
     assert client.post(PREFIX + '/jobs', headers=auth(tokens, 'operator'),
                        json={'action': 'sync', 'source_id': 'syn-gazette',
                              'request_key': 'sync-key-compat'}).status_code == 202
-
-
-def test_build_framework_job_end_to_end_over_the_api(env, monkeypatch):
-    client, db, tokens, jobs = env
-    from regintel import registry
-    registry.verify_framework(db, 'SYN-EU-ACT', reviewer='bob')  # declared human input
-    from regintel import __main__ as cli
-    monkeypatch.setattr(cli, '_llm', lambda: nullcontext(pipeline_llm()))
-    real_sync = sources.sync_source
-    monkeypatch.setattr(automation, 'sync_source', lambda db_, sid, **kw: real_sync(
-        db_, sid, **{**kw, 'transport': s.transport({EN_URL: s.ACT_EN_V1}), 'sleep': lambda t: None}))
-
-    body = submit_build(client, tokens, 'automated', 'SYN-EU-ACT', 'auto-key-run').json()
-    job_id = body['job']['id']
-    # same key + payload returns the same persisted job
-    assert submit_build(client, tokens, 'automated', 'SYN-EU-ACT', 'auto-key-run').json()['job']['id'] == job_id
-    assert submit_build(client, tokens, 'automated', 'SYN-EU-ACT', 'auto-key-run',
-                        translate=False).status_code == 409  # changed payload under the same key
-    assert jobs.run_once()
-    job = client.get(PREFIX + f'/jobs/{job_id}', headers=auth(tokens, 'automated')).json()['job']
-    assert job['status'] == 'SUCCEEDED'
-    assert job['progress']['stage'] == 'publish'  # last durable stage marker
-    result = job['result']
-    assert result['outcome'] == 'PUBLISHED' and result['counts']['published'] == 2
-    assert result['readiness']['readiness'] == 'NOT_READY'  # no mappings yet: publication alone is not READY
-    published = result['publication']['requirement_ids']
-
-    # automated decisions, their provenance and policy are visible in the reads
-    reviews = client.get(PREFIX + '/reviews', headers=auth(tokens, 'automated')).json()['items']
-    automated = [r for r in reviews if r['decision_origin'] == 'AUTOMATED']
-    assert {r['entity_type'] for r in automated} >= {'document_version', 'requirement'}
-    assert all(r['policy_version'] == automation.POLICY_VERSION for r in automated)
-    req_reviews = [r for r in automated if r['entity_type'] == 'requirement']
-    assert all(r['attempt_id'] for r in req_reviews)
-    vid = result['documents']['version_ids'][0]
-    attempts = client.get(PREFIX + f'/documents/{vid}/attempts', headers=auth(tokens, 'automated'),
-                          params={'kind': 'REVIEW'}).json()
-    assert len(attempts['items']) == 2
-    assert all(a['validated_json']['verdict'] == 'APPROVE' for a in attempts['items'])
-    assert client.get(PREFIX + f'/documents/{vid}/attempts', headers=auth(tokens, 'reader'),
-                      params={'kind': 'REVIEW'}).status_code == 403
-
-    # published requirements are in the public read model (same catalog database)
-    rows = db.q("SELECT id, status, published_seq FROM regulatory_requirement")
-    assert sorted(r['id'] for r in rows if r['published_seq']) == sorted(published)
-    coverage = client.get(PREFIX + '/jurisdictions/EU/coverage', headers=auth(tokens, 'automated')).json()
-    eu = next(i for i in coverage['items'] if i['code'] == 'EU')
-    assert eu['requirements']['published'] == 2 and eu['stage'] == 'REQUIREMENTS_PUBLISHED'

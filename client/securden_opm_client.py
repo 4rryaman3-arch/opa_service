@@ -350,7 +350,9 @@ class OpmClient:
     def prepare_catalog(self, *, mode: str, jurisdictions: list[str], request_key: str,
                         document_ids: list[int] | None = None, requested_framework_ids: list[str] | None = None,
                         industry: str | None = None, include_inherited: bool = True, translate: bool = True,
-                        as_of: str | None = None) -> dict[str, Any]:
+                        as_of: str | None = None, tenant_id: str | None = None, llm_mapping: bool = True,
+                        auto_rule_generation: bool = False, auto_publish_validated_rules: bool = False,
+                        collector_capability_digest: str | None = None) -> dict[str, Any]:
         """Submit a prepare_catalog job (rewrite contract 1.0; scopes catalog:automate +
         the client's ``organization_scope``). mode 'discovery' uses OPM's registered
         authorities/sources for the jurisdictions; mode 'import' processes
@@ -368,28 +370,16 @@ class OpmClient:
             payload["industry"] = industry
         if as_of is not None:
             payload["as_of"] = as_of
-        return self.catalog_admin_action("jobs", payload)
-
-    def catalog_build_framework(self, framework_id: str, *, request_key: str,
-                                version_ids: list[int] | None = None, translate: bool = True,
-                                as_of: str | None = None) -> dict[str, Any]:
-        """Run the automated requirements pipeline for one approved framework
-        (scope ``catalog:automate``; the ``/admin/health`` ``automation`` block
-        says whether the credential may use it).
-
-        Retrieval, document completeness review, extraction, a second model
-        review per candidate, approval and publication run on the server with
-        ``decision_origin=AUTOMATED``; no human review action is called. What
-        the policy does not approve stays DRAFT for human review. Returns the
-        202 envelope (job under ``["job"]``); the same ``request_key`` with the
-        same payload returns the same job. Poll with :meth:`wait_for_job`; the
-        running job exposes its current stage under ``["progress"]``."""
-        payload: dict[str, Any] = {"action": "build_framework", "framework_id": framework_id,
-                                   "translate": translate, "request_key": request_key}
-        if version_ids is not None:
-            payload["version_ids"] = version_ids
-        if as_of is not None:
-            payload["as_of"] = as_of
+        if tenant_id is not None:
+            payload["tenant_id"] = tenant_id
+        if not llm_mapping:
+            payload["llm_mapping"] = False
+        if auto_rule_generation:  # bounded rule generation (DJANGO_CONTRACT §5.4); defaults are left out
+            payload["auto_rule_generation"] = True
+        if auto_publish_validated_rules:
+            payload["auto_publish_validated_rules"] = True
+        if collector_capability_digest is not None:
+            payload["collector_capability_digest"] = collector_capability_digest
         return self.catalog_admin_action("jobs", payload)
 
     def catalog_job(self, job_id: str) -> dict[str, Any]:

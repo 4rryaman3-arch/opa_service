@@ -198,7 +198,7 @@ class DecisionDetails(BaseModel):
     summary: str
     engine: str
     policy_package: str
-    rule_source: Literal["PREDEFINED", "PUBLISHED", "CUSTOM", "DRAFT"]
+    rule_source: Literal["PREDEFINED", "PUBLISHED", "CUSTOM", "DRAFT", "GENERATED"]
     evaluation_mode: Literal["CURRENT", "HISTORICAL", "TEST"]
     as_of: str
     violation_count: int

@@ -141,7 +141,36 @@ custom_in_scope(rec) if {
 	group_holds(rec, input.rule.scope)
 }
 
-evaluated := [rec | some rec in lib.scoped_records; custom_in_scope(rec)]
+# Optional, used by OPM-generated rules (compiler pam-rulespec-compiler-1.0); absent for customer rules,
+# whose behaviour is unchanged:
+#   input.rule.period_field    - datetime field; only records whose value lies in the reporting period count
+#   input.rule.required_fields - fields the control test reads; an in-scope record with one of them null
+#                                cannot be judged and is reported as undetermined (INSUFFICIENT_EVIDENCE)
+period_field := object.get(input.rule, "period_field", null)
+
+required_fields := object.get(input.rule, "required_fields", [])
+
+in_rule_period(_) if period_field == null
+
+in_rule_period(rec) if {
+	period_field != null
+	lib.in_period(object.get(rec, period_field, null))
+}
+
+judgeable(rec) if {
+	every f in required_fields {
+		object.get(rec, f, null) != null
+	}
+}
+
+candidates := [rec | some rec in lib.scoped_records; in_rule_period(rec); custom_in_scope(rec)]
+
+evaluated := [rec | some rec in candidates; judgeable(rec)]
+
+undetermined contains {"record_id": rec.record_id, "subject_id": subject(rec), "reasons": ["REQUIRED_FIELD_MISSING"]} if {
+	some rec in candidates
+	not judgeable(rec)
+}
 
 # Explanation: ids of the conditions that made the violation true. Conditions
 # inside a nested group are reported only when that whole group held.
@@ -175,5 +204,5 @@ metrics := {
 
 decision := lib.decision(
 	input.rule.rule_id, input.rule.rule_version,
-	violations, excepted, set(), count(evaluated), input.rule.tolerance, metrics,
+	violations, excepted, undetermined, count(candidates), input.rule.tolerance, metrics,
 )

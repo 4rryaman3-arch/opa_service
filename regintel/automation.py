@@ -389,7 +389,9 @@ def requirement_mapping_gaps(db: CatalogDb, engine: Any, requirement_ids: list[i
         mapped = sorted({r["rule_id"] for r in db.q(
             "SELECT d.rule_id FROM framework_control_mapping m JOIN opa_rule_definition d ON d.pam_control_id="
             "m.pam_control_id WHERE m.requirement_id=? AND m.status='APPROVED' AND " + mapping_recipes.VISIBLE,
-            (rid, req["organization_scope"], scope))})
+            (rid, req["organization_scope"], scope))
+            # another organization's generated rules never count; this one's only via the scoped engine view
+            if not r["rule_id"].startswith("PAM-GEN-") or r["rule_id"] in bundle})
         gaps = mapping_policy.mapping_gaps(db, req, mapped_rules=mapped, bundle_rules=bundle, collected=collected,
                                            _cache=cache)
         item = {"requirement_id": rid, "framework_id": req["framework_id"], "section_ref": req["section_ref"],
@@ -405,6 +407,10 @@ def requirement_mapping_gaps(db: CatalogDb, engine: Any, requirement_ids: list[i
         llm = llm_mapping.latest_decision(db, rid, scope)
         if llm is not None:  # the LLM-assisted decision for this organization (llm_mapping)
             item["llm_mapping"] = llm
+        from . import generated_rules
+        gen = generated_rules.latest_decision(db, rid, scope)
+        if gen is not None:  # the bounded rule-generation decision for this organization
+            item["rule_generation"] = gen
         out.append(item)
     return out
 

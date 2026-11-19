@@ -44,15 +44,20 @@ host.
 | `policy-bundle/`, `policy-tests/` | OPA bundle (10 predefined rules, customer-rule interpreter, authz) and Rego tests |
 | `client/securden_opm_client.py` | drop-in `httpx` client for Django |
 | `deploy/`, `docker-compose.yml`, `Dockerfile` | Caddy edge config and container deployment |
-| `scripts/` | `run_native.py`, `bootstrap.py`, `gen_certs.py`, `manage_keys.py`, `smoke_https.py`, `benchmark.py`, `export_schemas.py`, `prepare_catalog_documents.py` |
+| `scripts/` | `run_native.py`, `bootstrap.py`, `gen_certs.py`, `manage_keys.py`, `smoke_https.py`, `benchmark.py`, `export_schemas.py` |
 | `tests/` | pytest suite (`tests/regintel/` uses synthetic fixtures only) |
 
-## Status (2026-11-16)
+## Status (2026-11-19)
 
-- Test suite: **321 passed, 4 skipped** (Caddy E2E). OPA-backed tests need `OPM_TEST_OPA_BINARY=.tools\opa.exe`.
+- Test suite: **392 passed, 4 skipped** (Caddy E2E); Rego 27/27. OPA-backed tests need
+  `OPM_TEST_OPA_BINARY=.tools\opa.exe`.
 - Verified live over `https://192.168.7.7` with mTLS: evaluation, the manual catalog workflow end to end, plan
-  staleness, and the automated `build_framework` job, all on the synthetic fixture `SYNTHETIC-PAM-TEST`. Requests
-  from the Django machine have reached the edge.
+  staleness, and the automated pipeline (then the `build_framework` job, now inside `prepare_catalog`), all on the
+  synthetic fixture `SYNTHETIC-PAM-TEST`. Requests from the Django machine have reached the edge.
+- Automatic rule orchestration (`prepare_catalog`): existing rules are assigned first. Where none fits, a bounded
+  RuleSpec generator can propose, validate, compile, OPA-test and (behind two service flags, both off by default)
+  activate an organization-scoped `PAM-GEN-*` rule with PARTIAL coverage (DJANGO_CONTRACT.md §5.4). Covered by
+  synthetic tests; not yet exercised live.
 - `prepare_catalog` and organization-scoped uploads (rewrite contract 1.0) are covered by tests but not yet demoed
   live.
 - **No real regulatory content is published.** `EU-NIS2`, `EU-DORA` and `EU-GDPR` are registered but empty until a

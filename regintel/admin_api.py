@@ -93,10 +93,6 @@ class Withdrawal(Model):
     reason: str = Field(min_length=10, max_length=4000)
 
 
-class ProposalRunCreate(Model):
-    tenant_id: str | None = Field(None, min_length=1, max_length=128, pattern=r'^[A-Za-z0-9._:-]+$')
-
-
 class SourceReview(Model):
     outcome: Literal['VERIFIED', 'REJECTED']
     evidence: str = Field(min_length=30, max_length=4000)
@@ -202,13 +198,15 @@ class PrepareCatalog(Model):
     requested_framework_ids: list[str] = Field(default_factory=list, max_length=20)
     include_inherited: bool = True
     document_ids: list[int] | None = Field(default=None, max_length=100)  # import mode: scoped upload documents
-    # import mode: documents that are vendor capability-mapping matrices (otherwise detected from their tables);
-    # their rows attach to official controls and are never published as requirements
-    capability_document_ids: list[int] = Field(default_factory=list, max_length=100)
     # collector handshake / policy / PAM configuration owner for LLM-assisted mapping (defaults to the
     # organization's single declared tenant)
     tenant_id: str | None = Field(default=None, min_length=1, max_length=128, pattern=r'^[A-Za-z0-9._:-]+$')
     llm_mapping: bool = True
+    # bounded rule generation (DJANGO_CONTRACT §5.4): validated RuleSpec proposals for requirements no existing
+    # rule covers; activation additionally needs auto_publish_validated_rules and the pinned handshake digest
+    auto_rule_generation: bool = False
+    auto_publish_validated_rules: bool = False
+    collector_capability_digest: str | None = Field(default=None, pattern=r'^sha256:[0-9a-f]{64}$')
     translate: bool = True
     as_of: date | None = None
     languages: list[Annotated[str, Field(pattern=r'^[a-z]{2,3}$')]] | None = Field(default=None, max_length=10)
@@ -216,27 +214,9 @@ class PrepareCatalog(Model):
     request_key: str = Field(min_length=8, max_length=100)
 
 
-class BuildFramework(Model):
-    """Automated requirements pipeline for one approved framework: retrieve
-    configured eligible sources, review document completeness, extract with the
-    local LLM, run a second model review per candidate plus deterministic code
-    checks, approve what passes the automation policy (decision_origin
-    AUTOMATED) and publish only those requirements. Requires catalog:automate.
-    The manual review workflow is unchanged and remains available."""
-
-    action: Literal['build_framework']
-    framework_id: str = Field(min_length=1, max_length=48)
-    version_ids: list[int] | None = Field(default=None, max_length=100)  # explicit document versions; else all of the framework's
-    translate: bool = True
-    as_of: date | None = None  # readiness recomputation date; defaults to today
-    # optional work bounds; unset = operator settings OPM_REGINTEL_AUTOMATION_LANGUAGES / _SCREENING
-    languages: list[Annotated[str, Field(pattern=r'^[a-z]{2,3}$')]] | None = Field(default=None, max_length=10)
-    screening: Literal['none','pam-keyword-screen-v1'] | None = None
-    request_key: str = Field(min_length=8, max_length=100)
-
-
 OPTIONAL_JOB_FIELDS = ('languages', 'screening')  # omitted from the stored payload when unset (stable dedup)
-DEFAULTED_JOB_FIELDS = {'capability_document_ids': [], 'tenant_id': None, 'llm_mapping': True}
+DEFAULTED_JOB_FIELDS = {'tenant_id': None, 'llm_mapping': True, 'auto_rule_generation': False,
+                        'auto_publish_validated_rules': False, 'collector_capability_digest': None}
 
 
 def envelope(db, **data):
@@ -277,7 +257,8 @@ def admin_reader(principal: Principal = Depends(authenticate)):
 
 def create_admin_app(settings: Settings | None = None, *, start_worker=True):
     settings = settings or Settings()
-    jobs = Jobs(settings.catalog_jobs_db_path, settings.catalog_db_path, bundle_dir=settings.policy_bundle_dir)
+    jobs = Jobs(settings.catalog_jobs_db_path, settings.catalog_db_path, bundle_dir=settings.policy_bundle_dir,
+                rule_store_path=settings.db_path)
 
     @asynccontextmanager
     async def lifespan(app):
@@ -385,59 +366,6 @@ def create_admin_app(settings: Settings | None = None, *, start_worker=True):
                         bridge_collected_rules=list(mapping_policy.bridge_collected_rules()),
                         gap_codes=list(mapping_policy.GAP_CODES),
                         **extra)
-
-    @app.post(PREFIX+'/frameworks/{framework_id}/mapping-proposals/runs',status_code=201)
-    def record_proposal_run(framework_id: str, request: Request, body: ProposalRunCreate,
-                            db=Depends(database), principal: Principal=Depends(operate)):
-        """Validate the framework's mapping proposal set and preserve the result (candidates and
-        rejected proposals with their structured reasons) as an immutable run. Never drafts,
-        approves or publishes a mapping."""
-        from . import mapping_proposals, policy_contexts as pctx, policy_controls
-        if db.one('SELECT id FROM regulatory_framework WHERE id=?',(framework_id,)) is None:
-            raise ServiceError(404,'UNKNOWN_FRAMEWORK','Framework not found')
-        if engine is None:
-            raise ServiceError(503,'ENGINE_UNAVAILABLE','The policy bundle is not loaded')
-        if mapping_proposals.proposal_set(framework_id) is None:
-            raise ServiceError(404,'NO_PROPOSAL_SET','No mapping proposal set exists for this framework')
-        scope=request_scope(request,db,principal)
-        if body.tenant_id is not None and scope is None:
-            raise ServiceError(422,'SCOPE_REQUIRED','tenant_id needs the organization scope header')
-        collected=(policy_controls.collected_rules(pctx.capabilities(db,scope,body.tenant_id),engine)
-                   if body.tenant_id else mapping_policy.bridge_collected_rules())
-        ids=[r['id'] for r in db.q(
-            "SELECT id FROM regulatory_requirement WHERE framework_id=? AND status='APPROVED' "
-            "AND published_seq IS NOT NULL AND (organization_scope IS NULL"+(" OR organization_scope=?" if scope else "")
-            +") ORDER BY id",(framework_id,*([scope] if scope else [])))]
-        items=automation.requirement_mapping_gaps(db,engine,ids,collected=collected,scope=scope)
-        result=mapping_proposals.evaluate(db,engine,framework_id,items,collected)
-        version=db.scalar('SELECT MAX(seq) FROM catalog_publication')
-        with db.tx():
-            run_id=db.insert('mapping_proposal_run',framework_id=framework_id,organization_scope=scope,
-                             tenant_id=body.tenant_id,proposal_set_id=result['proposal_set']['proposal_set_id'],
-                             proposal_set_status=result['proposal_set']['status'],catalog_version=version,
-                             policy_bundle_version=result['policy_bundle_version'],
-                             proposal_digest=result['proposal_digest'],proposal_result=result,
-                             created_by=principal.key_id,created_at=now_iso())
-            db.audit(principal.key_id,'PROPOSAL_RUN','framework',framework_id,run_id=run_id)
-        return envelope(db,run_id=run_id,**result)
-
-    @app.get(PREFIX+'/frameworks/{framework_id}/mapping-proposals/runs')
-    def proposal_runs(framework_id: str, request: Request, db=Depends(database),
-                      principal: Principal = Depends(admin_reader)):
-        scope=request_scope(request,db,principal)
-        rows=db.q('SELECT id,framework_id,organization_scope,tenant_id,proposal_set_id,proposal_set_status,catalog_version,'
-                  'policy_bundle_version,proposal_digest,created_by,created_at FROM mapping_proposal_run '
-                  'WHERE framework_id=? AND (organization_scope IS NULL'+(' OR organization_scope=?' if scope else '')
-                  +') ORDER BY id DESC LIMIT 100',(framework_id,*([scope] if scope else [])))
-        return envelope(db,items=rows)
-
-    @app.get(PREFIX+'/mapping-proposal-runs/{run_id}')
-    def proposal_run(run_id: int, request: Request, db=Depends(database), principal: Principal = Depends(admin_reader)):
-        scope=request_scope(request,db,principal)
-        row=db.one('SELECT * FROM mapping_proposal_run WHERE id=?',(run_id,))
-        if row is None or (row['organization_scope'] is not None and row['organization_scope']!=scope):
-            raise ServiceError(404,'UNKNOWN_PROPOSAL_RUN','Proposal run not found')
-        return envelope(db,run=row)
 
     @app.get(PREFIX+'/authorities')
     def authorities(db=Depends(database), _: Principal = Depends(admin_reader)):
@@ -649,14 +577,23 @@ def create_admin_app(settings: Settings | None = None, *, start_worker=True):
         return envelope(db,status='WITHDRAWN',result=result)
 
     @app.get(PREFIX+'/rule-catalog')
-    def rule_catalog(db=Depends(database), _: Principal = Depends(admin_reader)):
-        # Rules a mapping may reference, with the parameters that must be stated.
+    def rule_catalog(request: Request, db=Depends(database), principal: Principal = Depends(admin_reader)):
+        # Rules a mapping may reference, with the parameters that must be stated. With the organization scope
+        # header, that organization's generated rules (origin GENERATED, with provenance) are listed too.
         if engine is None:
             raise ServiceError(503,'RULE_CATALOG_UNAVAILABLE','The policy bundle is not readable by the management process')
+        from . import generated_rules as gr
+        scope=request_scope(request,db,principal)
+        view=gr.engine_for(db,engine,scope)
+        provenance=getattr(view,'generated',{})
         controls={r['rule_id']:r['pam_control_id'] for r in db.q('SELECT rule_id,pam_control_id FROM opa_rule_definition')}
         items=[{'rule_id':rule_id,'pam_control_id':controls.get(rule_id),
-                'versions':[spec.public() for _,spec in sorted(versions.items())]}
-               for rule_id,versions in sorted(engine.rules.items())]
+                'origin':'GENERATED' if rule_id.startswith('PAM-GEN-') else next(
+                    (spec.public()['origin'] for spec in versions.values()),'BUILT_IN'),
+                'versions':[{**spec.public(),**({'generated_rule':provenance[(rule_id,v)]}
+                                                if (rule_id,v) in provenance else {})}
+                            for v,spec in sorted(versions.items())]}
+               for rule_id,versions in sorted(view.rules.items())]
         return envelope(db,policy_bundle_version=engine.bundle_version,items=items)
 
     @app.get(PREFIX+'/pending')
@@ -813,20 +750,47 @@ def create_admin_app(settings: Settings | None = None, *, start_worker=True):
     def publish(db=Depends(database), principal: Principal=Depends(publisher)):
         return envelope(db,publication=catalog.publish_catalog(db,principal.key_id))
 
+    def check_rule_generation(db, body: 'PrepareCatalog', scope: str) -> None:
+        """Generation and activation are each behind a service flag AND an explicit job field; activation is
+        bound to one tenant and to the collector declaration the caller reviewed (pinned digest)."""
+        from . import generated_rules as gr
+        if body.auto_publish_validated_rules and not body.auto_rule_generation:
+            raise ServiceError(422,'INVALID_RULE_GENERATION','auto_publish_validated_rules requires auto_rule_generation')
+        if body.collector_capability_digest is not None and not body.auto_rule_generation:
+            raise ServiceError(422,'INVALID_RULE_GENERATION','collector_capability_digest is only used with '
+                                   'auto_rule_generation')
+        if body.auto_rule_generation:
+            if not gr.generation_enabled():
+                raise ServiceError(422,'RULE_GENERATION_DISABLED',f'automatic rule generation is disabled on this '
+                                       f'service ({gr.FLAG_GENERATE}=false)')
+            if not body.llm_mapping:
+                raise ServiceError(422,'INVALID_RULE_GENERATION','auto_rule_generation runs after llm_mapping; '
+                                       'llm_mapping must be true')
+        if body.auto_publish_validated_rules:
+            if not gr.publish_enabled():
+                raise ServiceError(422,'RULE_PUBLICATION_DISABLED',f'automatic activation of generated rules is '
+                                       f'disabled on this service ({gr.FLAG_PUBLISH}=false)')
+            if body.tenant_id is None:
+                raise ServiceError(422,'TENANT_REQUIRED','auto_publish_validated_rules needs an explicit tenant_id')
+            if body.collector_capability_digest is None:
+                raise ServiceError(422,'CAPABILITY_DIGEST_REQUIRED','auto_publish_validated_rules needs the '
+                                       'collector_capability_digest the caller reviewed')
+            current=pctx.capabilities(db,scope,body.tenant_id)
+            if current.get('source')!='HANDSHAKE' or current.get('digest')!=body.collector_capability_digest:
+                raise ServiceError(409,'STALE_CAPABILITY_DIGEST','collector_capability_digest is not the current '
+                                       'collector declaration of this tenant; re-read GET .../collector-capabilities')
+
     @app.post(PREFIX+'/jobs',status_code=202)
     def submit(request: Request,
-               body: Annotated[Sync | Extract | Discover | BuildFramework | PrepareCatalog, Field(discriminator='action')],
+               body: Annotated[Sync | Extract | Discover | PrepareCatalog, Field(discriminator='action')],
                db=Depends(database), principal: Principal=Depends(authenticate)):
         # Per-action permission: the automated pipelines need their own engine-defined scope so that
         # holding catalog:operate alone never silently enables automated approval and publication.
-        required = automation.AUTOMATION_SCOPE if isinstance(body,(BuildFramework,PrepareCatalog)) else 'catalog:operate'
+        required = automation.AUTOMATION_SCOPE if isinstance(body,PrepareCatalog) else 'catalog:operate'
         if required not in principal.scopes:
             raise ServiceError(403,'FORBIDDEN',f"Credential lacks required scope '{required}'.")
         if isinstance(body,Discover):
             registry.require_jurisdiction(db,body.jurisdiction)  # 404 UNKNOWN_JURISDICTION before anything is queued
-        if isinstance(body,BuildFramework) and db.one(
-                'SELECT 1 FROM regulatory_framework WHERE id=?',(body.framework_id,)) is None:
-            raise ServiceError(404,'UNKNOWN_FRAMEWORK','Framework is not registered in the catalog.')
         payload=body.model_dump(mode='json',exclude={'request_key'})
         for key in OPTIONAL_JOB_FIELDS:
             if key in payload and payload[key] is None:
@@ -854,12 +818,9 @@ def create_admin_app(settings: Settings | None = None, *, start_worker=True):
                 missing=sorted(set(body.document_ids)-owned)  # cross-scope ids look exactly like unknown ones
                 if missing:
                     raise ServiceError(404,'UNKNOWN_DOCUMENT',f'Documents not found in this organization scope: {missing}')
-                stray=sorted(set(body.capability_document_ids)-set(body.document_ids))
-                if stray:
-                    raise ServiceError(422,'INVALID_CAPABILITY_DOCUMENTS',
-                                       f'capability_document_ids must be among document_ids: {stray}')
             if body.tenant_id is not None:
                 policy_scope(request,db,principal,body.tenant_id)  # the caller must be authorized for the tenant
+            check_rule_generation(db,body,scope)
             payload['organization_scope']=scope  # server-derived: dedup and execution are per scope
         job=jobs.submit(principal.key_id,body.request_key,payload)
         extra={'organization_scope':scope} if scope else {}
