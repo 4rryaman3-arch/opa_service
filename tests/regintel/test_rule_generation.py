@@ -24,11 +24,11 @@ Q = {
     "idle": "Privileged session policies shall lock an idle session after 15 minutes of inactivity.",
     "gap": "Privileged audit logging shall have no collection gap longer than the organization-defined period.",
     "rego": "Emergency privileged access shall be justified by the person who activates it.",
-    "unknown_op": "Privileged accounts shall carry an owner identifier matching the approved naming pattern.",
+    "unknown_op": "Emergency privileged access tickets shall match the approved naming pattern.",
     "invented": "Privileged session policies shall enforce a short idle timeout.",
     "mfa": "Privileged access shall be granted only after multi-factor authentication succeeded.",
     "review": "Every emergency privileged access activation shall be reviewed after use.",
-    "decline": "The organization shall appoint a person responsible for privileged access governance.",
+    "decline": "The organization shall appoint a person responsible for emergency privileged access governance.",
 }
 PAGE = ("<html><body><h1>SYNTHETIC TEST FIXTURE - invented PAM obligations (not a real standard)</h1>"
         + "".join(f"<p>Article {n}. {q}</p>" for n, q in enumerate(Q.values(), 1)) + s.FILLER + "</body></html>")
@@ -308,6 +308,178 @@ def test_validated_only_without_auto_publish(gen):
     assert env.db.scalar("SELECT status FROM generated_rule_version WHERE rule_id=?", (t["rule_id"],)) == "VALIDATED"
     assert env.db.scalar("SELECT COUNT(*) FROM framework_control_mapping WHERE requirement_id=?", (ids["ticket"],)) == 0
     assert not store_path.exists() or RuleStore(store_path).get_custom("acme", t["rule_id"], "1.0") is None
+
+
+def test_lookup_available_evidence_is_validated_and_waits_then_activates_when_collected(gen):
+    env, ids, run, _submit, model, _digest, store_path = gen
+    lookup = [dict(e, collection_status="LOOKUP_AVAILABLE", caveats=["Synthetic: lookup over PAM configuration."])
+              if e["evidence_type"] == "session_policy_configuration" else e for e in HANDSHAKE]
+    d = by_req(run("gen-lookup-1", collector_capability_digest=declare(env, SCOPE_A, lookup)))
+    idle = d[ids["idle"]]
+    assert idle["outcome"] == gr.GENERATED_RULE_VALIDATED and idle["mapping_id"] is None, idle
+    assert idle["waiting_for_collector"]["evidence_type"] == "session_policy_configuration"
+    assert env.db.scalar("SELECT status FROM generated_rule_version WHERE rule_id=?", (idle["rule_id"],)) == "VALIDATED"
+    assert not store_path.exists() or RuleStore(store_path).get_custom("acme", idle["rule_id"], "1.0") is None
+    assert "session_policy_configuration" not in gr.pctx.capabilities(env.db, SCOPE_A, "acme")["evidence"]
+    calls = spec_calls(model)
+    d = by_req(run("gen-lookup-2", collector_capability_digest=declare(env, SCOPE_A)))  # Django now sends it
+    assert d[ids["idle"]]["outcome"] == gr.GENERATED_RULE_ACTIVATED and d[ids["idle"]]["rule_id"] == idle["rule_id"]
+    assert spec_calls(model) == calls  # the stored proposal was re-checked, the model was not asked again
+
+
+def test_screen_offers_only_evidence_types_the_requirement_speaks_to():
+    detail = {"assessment_modes": ["EVENT_HISTORY"]}
+    cap = {"source": "HANDSHAKE", "evidence": {"privileged_account": "1.0"}, "evidence_detail": {
+        "privileged_account": {**detail, "supported_fields": ["account_id", "created_at", "enabled"]},
+        "session_policy_configuration": {"assessment_modes": ["CONFIGURATION_SNAPSHOT"],
+                                         "supported_fields": ["policy_id", "captured_at"],
+                                         "collection_status": "LOOKUP_AVAILABLE", "schema_version": "1.0"}}}
+    assert gr.relevant_evidence({"original_text": "Define and document the types of accounts allowed."}, cap) == [
+        "privileged_account"]  # v1 also offered every type without keywords, here session_policy_configuration
+    assert gr.relevant_evidence({"original_text": "Lock the session after 15 minutes of inactivity."}, cap) == [
+        "privileged_account", "session_policy_configuration"]
+    assert gr.relevant_evidence({"original_text": "Appoint a privacy officer."}, cap) == []
+    from app.models.evidence import EVIDENCE_MODELS
+    assert set(EVIDENCE_MODELS) <= set(gr.EVIDENCE_KEYWORDS)
+
+
+def test_grammar_pairs_fields_only_with_operators_their_type_allows():
+    cap = {"source": "HANDSHAKE", "evidence": {"privileged_account": "1.0"}, "evidence_detail": {"privileged_account": {
+        "assessment_modes": ["EVENT_HISTORY"],
+        "supported_fields": ["account_id", "scope_tags", "created_at", "enabled", "last_used_at"]}}}
+
+    class _Db:
+        def q(self, *_a, **_k):
+            return [{"id": "PAMC-ACCOUNT-LIFECYCLE"}]
+    branch = gr._spec_grammar(_Db(), {"id": 1}, cap, "privileged_account")
+
+    def ops_by_field(node) -> dict[str, set[str]]:
+        seen: dict[str, set[str]] = {}
+
+        def walk(n):
+            if isinstance(n, dict):
+                props = n.get("properties") or {}
+                if "field" in props and "operator" in props:
+                    for f in props["field"].get("enum") or [props["field"]["const"]]:
+                        seen.setdefault(f, set()).update(props["operator"]["enum"])
+                for v in n.values():
+                    walk(v)
+            elif isinstance(n, list):
+                for v in n:
+                    walk(v)
+        walk(node)
+        return seen
+    cond = ops_by_field(branch["properties"]["condition"])
+    pop = ops_by_field(branch["properties"]["population"])
+    assert "scope_tags" not in cond and "scope_tags" not in pop  # org-defined tags: the model cannot know them
+    assert cond["enabled"] == {"equals", "not_equals"}
+    assert not set(pop) & set(cond)  # filter and condition fields are disjoint: a filter can never be repeated
+    assert set(pop) <= {"privileged"}  # population filters: scope flags only, never statuses or timestamps
+    assert "account_id" not in cond  # never-null identifier: no operator tests anything on it
+    assert {"older_than_days", "exists"} <= cond["last_used_at"] and "exists" not in cond["created_at"]
+    assert branch["properties"]["subject_field"]["enum"] == ["account_id"]
+    # datetime/integer thresholds only through a declared parameter; exists takes no value
+    variants = branch["properties"]["condition"]["anyOf"][0]["anyOf"]
+    def names(v):
+        return v["properties"]["field"].get("enum") or [v["properties"]["field"]["const"]]
+    assert all("value" not in v["required"] for v in variants if "last_used_at" in names(v))
+    # a date threshold only takes a parameter in days
+    [dated] = [v for v in variants if "parameter" in v["required"] and names(v) == ["last_used_at"]]
+    assert dated["properties"]["parameter"]["enum"] and all(
+        n.endswith("_days") for n in dated["properties"]["parameter"]["enum"])
+    assert "older_than_days" not in pop.get("last_used_at", set())  # population filters take no parameters
+
+
+def test_condition_that_repeats_a_population_filter_is_rejected():
+    spec = gr.RuleSpec.model_validate(_spec(1, population={
+        "type": "ORGANIZATION_SUPPORTED_ENTITIES", "period_field": "activated_at",
+        "where": [{"field": "justification_provided", "operator": "equals", "value": True}]},
+        condition={"field": "justification_provided", "operator": "equals", "value": True}))
+    cap = {"source": "HANDSHAKE", "evidence": {"break_glass_event": "1.0"}, "evidence_detail": {"break_glass_event": {
+        "assessment_modes": ["EVENT_HISTORY"], "supported_fields": BG_FIELDS}}}
+    class _Db:
+        def one(self, *_a, **_k):
+            return {"id": spec.pam_control_id}
+    with pytest.raises(gr.Gap, match="repeats the population filter"):
+        gr.validate(spec, req={"id": 1, "original_text": "Emergency access shall be justified."}, cap=cap, db=_Db())
+
+
+def test_population_filter_repeating_the_condition_is_rejected_not_repaired():
+    raw = json.dumps({"requirement_id": 1, "decision": "PROPOSE", "confidence": 0.9, "rationale": "ok",
+                      "rule_spec": _spec(1, population={
+                          "type": "ORGANIZATION_SUPPORTED_ENTITIES", "period_field": "activated_at",
+                          "where": [{"field": "justification_provided", "operator": "equals", "value": True}]},
+                          condition={"field": "justification_provided", "operator": "equals", "value": True})})
+    proposal_json, gap = gr._parse(raw, truncated=False)
+    # left as written: removing the filter would make a stricter rule the model never stated; validate() rejects it
+    assert gap is None and proposal_json["rule_spec"]["population"]["where"] != []
+
+
+def test_unreferenced_parameters_are_dropped_before_schema_validation():
+    params = {f"max_count_{i}": {"type": "integer", "unit": "count"} for i in range(10)}
+    raw = json.dumps({"requirement_id": 1, "decision": "PROPOSE", "confidence": 0.9, "rationale": "ok",
+                      "rule_spec": _spec(1, parameters=params)})
+    proposal_json, _gap = gr._parse(raw, truncated=False)
+    assert proposal_json is not None and proposal_json["rule_spec"]["parameters"] == {}, _gap
+
+
+def test_condition_requiring_accounts_to_be_enabled_is_rejected():
+    spec = gr.RuleSpec.model_validate(_spec(1, evidence_type="privileged_account", subject_field="account_id",
+                                            population={"type": "ORGANIZATION_SUPPORTED_ENTITIES",
+                                                        "period_field": "created_at", "where": []},
+                                            condition={"field": "enabled", "operator": "equals", "value": True}))
+    cap = {"source": "HANDSHAKE", "evidence": {"privileged_account": "1.0"}, "evidence_detail": {"privileged_account": {
+        "assessment_modes": ["EVENT_HISTORY"], "supported_fields": ["account_id", "created_at", "enabled"]}}}
+
+    class _Db:
+        def one(self, *_a, **_k):
+            return {"id": spec.pam_control_id}
+    with pytest.raises(gr.Gap, match="requires accounts to be enabled"):
+        gr.validate(spec, req={"id": 1, "original_text": "Create, enable, modify, disable and remove accounts."},
+                    cap=cap, db=_Db())
+
+
+def test_limitation_copied_from_the_worked_example_is_rejected():
+    copied = next(iter(gr._EXAMPLE_LIMITATIONS))
+    spec = gr.RuleSpec.model_validate(_spec(1, limitations=[copied]))
+    cap = {"source": "HANDSHAKE", "evidence": {"break_glass_event": "1.0"}, "evidence_detail": {"break_glass_event": {
+        "assessment_modes": ["EVENT_HISTORY"], "supported_fields": BG_FIELDS}}}
+
+    class _Db:
+        def one(self, *_a, **_k):
+            return {"id": spec.pam_control_id}
+    with pytest.raises(gr.Gap, match="copied from the prompt's worked example"):
+        gr.validate(spec, req={"id": 1, "original_text": "Emergency access shall reference a ticket."},
+                    cap=cap, db=_Db())
+
+
+def test_audit_records_do_not_ground_recording_fields():
+    rec = gr.RuleSpec.model_validate(_spec(1, evidence_type="privileged_session", subject_field="session_id",
+                                           population={"type": "ORGANIZATION_SUPPORTED_ENTITIES",
+                                                       "period_field": "started_at", "where": []},
+                                           condition={"field": "recording_status", "operator": "equals",
+                                                      "value": "AVAILABLE"}))
+    assert gr.grounded_fields(rec, {"original_text": "Audit records contain the type of event."}) == []
+    assert gr.grounded_fields(rec, {"original_text": "Record privileged sessions."}) == ["recording_status"]
+    au7 = "Provide an audit record reduction and report generation capability."
+    assert gr.grounded_fields(rec, {"original_text": au7}) == []
+    au14 = "Provide the capability to [Selection (one or more): record; view; hear; log] the content of a session."
+    assert gr.grounded_fields(rec, {"original_text": au14}) == ["recording_status"]
+    auth = gr.RuleSpec.model_validate(_spec(1, evidence_type="access_authorization", subject_field="access_id",
+                                            population={"type": "ORGANIZATION_SUPPORTED_ENTITIES",
+                                                        "period_field": "accessed_at", "where": []},
+                                            condition={"field": "entitlement_status", "operator": "equals",
+                                                       "value": "AUTHORIZED"}))
+    ia52 = "Enforce authorized access to the corresponding private key;"
+    assert gr.grounded_fields(auth, {"original_text": ia52}) == []
+    ac2i = "Authorize access to the system based on a valid access authorization;"
+    assert gr.grounded_fields(auth, {"original_text": ac2i}) == ["entitlement_status"]
+
+
+def test_inventory_file_is_accepted_as_the_handshake():
+    body = json.loads((Path(__file__).resolve().parents[2] / "pam_capability_inventory.json").read_text("utf-8"))
+    parsed = gr.pctx.CollectorCapabilitiesIn.model_validate(body)
+    assert {e.collection_status for e in parsed.evidence} == {"COLLECTED", "LOOKUP_AVAILABLE"}
 
 
 def test_interruption_between_activation_and_mapping_resumes_without_duplicates(gen, monkeypatch):

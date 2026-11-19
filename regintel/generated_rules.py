@@ -54,7 +54,22 @@ SPEC_VERSION = "1.0"
 COMPILER_VERSION = "pam-rulespec-compiler-1.0"
 # v2: compact context and schema (v1 overflowed a 4096-token window, so the model never saw the requirement)
 # v3: per-requirement decoding grammar (enums, no $ref/patterns), evidence screen, one synthetic example
-PROMPT_VERSION = "rule-spec-v3"
+# v4: the grammar pairs each field only with the operators its type allows (v3 let the model write "equals" on a
+# string_list such as scope_tags, which validation then rejected), and offers exists/not_exists only on
+# nullable fields
+# v5: 'contains' only in population filters, exists/not_exists without a value, integer/datetime thresholds only
+# as declared parameters, subject_field only a never-null identifier (each mirrors a validate() rule)
+# v6: parameter names from a closed list; a condition repeating a population filter is rejected by name
+# v7: no record_id/scope_tags in the grammar; each parameter name has one unit and only fits fields of that unit
+# v8: enum/boolean literals typed per field, no empty anyOf (Ollama rejects it), unreferenced parameters and
+# population filters that repeat the condition are removed before validation (recorded as a limitation)
+# v9: v8 without the population-filter repair (it produced an unintended stricter rule for AC-2 f)
+# v10: the model only names a parameter in the condition; OPM declares it (unit, setting binding) before validation
+# v11: population filters take only boolean scope flags (statuses, timestamps, counts are condition-only)
+# v12: scope flags filter only, every other field is condition-only (filter and condition are disjoint)
+# v13: a condition requiring accounts to be enabled is rejected
+# v14: limitations copied from the worked example are rejected; the example no longer says to declare parameters
+PROMPT_VERSION = "rule-spec-v14"
 POLICY_VERSION = "rule-gen-v1"
 FLAG_GENERATE = "REGINTEL_AUTO_RULE_GENERATION"
 FLAG_PUBLISH = "REGINTEL_AUTO_PUBLISH_GENERATED_RULES"
@@ -302,12 +317,13 @@ def validate(spec: RuleSpec, *, req: dict[str, Any], cap: dict[str, Any], db: Ca
     if spec.evidence_schema_version != EVIDENCE_SCHEMA_VERSIONS[spec.evidence_type]:
         raise Gap("EVIDENCE_SCHEMA_INCOMPATIBLE", f"{spec.evidence_type} schema {spec.evidence_schema_version} is not "
                   f"OPM's pinned version {EVIDENCE_SCHEMA_VERSIONS[spec.evidence_type]}")
-    if cap.get("source") != "HANDSHAKE" or spec.evidence_type not in (cap.get("evidence") or {}):
+    declared = declared_version(cap, spec.evidence_type)
+    if cap.get("source") != "HANDSHAKE" or declared is None:
         raise Gap("COLLECTOR_MISSING", f"this organization's collector declaration does not supply {spec.evidence_type}",
                   evidence_type=spec.evidence_type)
-    if cap["evidence"][spec.evidence_type] != spec.evidence_schema_version:
+    if declared != spec.evidence_schema_version:
         raise Gap("EVIDENCE_SCHEMA_INCOMPATIBLE", f"the collector declares {spec.evidence_type} schema "
-                  f"{cap['evidence'][spec.evidence_type]}, the rule needs {spec.evidence_schema_version}")
+                  f"{declared}, the rule needs {spec.evidence_schema_version}")
     detail = (cap.get("evidence_detail") or {}).get(spec.evidence_type)
     if not detail or not detail.get("supported_fields") or not detail.get("assessment_modes"):
         raise Gap("EVIDENCE_SCHEMA_INCOMPATIBLE", f"the collector declaration lists no assessment_modes / "
@@ -335,9 +351,19 @@ def validate(spec: RuleSpec, *, req: dict[str, Any], cap: dict[str, Any], db: Ca
         if pred.parameter is not None:
             raise Gap("RULE_SPEC_INVALID", "population filters take literal boolean/enum/tag values only")
         _check_predicate(pred, catalogue, spec, referenced)
+    filters = {(p.field, p.operator, json.dumps(p.value, sort_keys=True)) for p in spec.population.where}
     for pred in _predicates(spec.condition):
         if pred.operator == "contains":
             raise Gap("RULE_SPEC_INVALID", "'contains' is allowed only in population filters")
+        if pred.field == "enabled" and ((pred.operator == "equals" and pred.value is True)
+                                        or (pred.operator == "not_equals" and pred.value is False)):
+            # no control obliges accounts to be enabled; account obligations are about disabling (dormant,
+            # departed, unauthorized). AC-2 f produced "every privileged account must be enabled" twice.
+            raise Gap("RULE_SPEC_INVALID", "the condition requires accounts to be enabled; no PAM control obliges "
+                      "that (account obligations require disabling), so the rule would flag compliant behaviour")
+        if (pred.field, pred.operator, json.dumps(pred.value, sort_keys=True)) in filters:
+            raise Gap("RULE_SPEC_INVALID", f"the condition repeats the population filter on '{pred.field}', so no "
+                      "in-population record can fail it")
         _check_predicate(pred, catalogue, spec, referenced)
     # a condition only on the record's own identity/period (e.g. "account_id exists") is always true: it would
     # report PASS for everything and claim coverage it does not test
@@ -363,6 +389,12 @@ def validate(spec: RuleSpec, *, req: dict[str, Any], cap: dict[str, Any], db: Ca
             if p.type == "integer" and ui_unit in _TIME_UNITS and ui_unit != p.unit:
                 raise Gap("RULE_SPEC_INVALID", f"parameter '{name}': the setting is in {ui_unit}, not {p.unit}")
     checks.append("operators_types_units")
+    copied = [x for x in spec.limitations if x.strip().lower() in _EXAMPLE_LIMITATIONS]
+    if copied and spec.evidence_type != "privileged_session":
+        # the worked example's limitation on an unrelated rule means the model copied the example instead of
+        # reasoning about this requirement (AC-5 a: an authorization test whose only limitation was about recordings)
+        raise Gap("RULE_SPEC_INVALID", f"the limitations are copied from the prompt's worked example {copied}; the "
+                  "proposal does not reason about this requirement")
     return checks
 
 
@@ -943,23 +975,26 @@ SYSTEM_RULESPEC = (
     "propose ONE technical control test as a RuleSpec or decline. Answer with JSON only, matching the schema. "
     "Use ONLY the evidence types, fields, operators, PAM controls and organization settings listed in the context. "
     "Never write code, Rego, expressions, templates, URLs or paths. Never invent numbers: every numeric or duration "
-    "threshold must be a declared parameter (OPM finds its value in the regulatory text or the organization's "
-    "confirmed settings; bind policy_control when a listed setting fits). 'condition' states what every in-scope "
-    "record must satisfy. coverage is always PARTIAL; list what the test does not establish under limitations. "
-    "decision NO_RULE when the listed evidence cannot test the obligation; MANUAL_ASSESSMENT when a person must "
-    "judge it. Declare a parameter only if the condition references it; the condition must test a field that shows "
+    "threshold is a parameter name from the schema in the condition (OPM declares it and finds its value in the "
+    "regulatory text or the organization's confirmed settings); leave 'parameters' empty. population.where only "
+    "selects which records are in scope; 'condition' states what every in-scope record must satisfy and must test a "
+    "different field than population.where (never repeat a filter as the condition). coverage is always PARTIAL; "
+    "list what the test does not establish under limitations. decision NO_RULE when the listed evidence cannot "
+    "test the obligation; MANUAL_ASSESSMENT when a person must judge it. The condition must test a field that shows "
     "compliance (a status, a flag or a timestamp age), not merely that the record exists.")
 
 
 def _context(db: CatalogDb, req: dict[str, Any], ref: dict[str, Any], cap: dict[str, Any]) -> str:
     detail = cap.get("evidence_detail") or {}
     evidence = []
-    for etype, version in sorted((cap.get("evidence") or {}).items()):
-        d = detail.get(etype)
-        if not d or etype not in CUSTOM_RULE_FIELDS:
+    for etype in sorted(detail):
+        d, version = detail[etype], declared_version(cap, etype)
+        if version is None or etype not in CUSTOM_RULE_FIELDS:
             continue
         cat = CUSTOM_RULE_FIELDS[etype]
         evidence.append({"evidence_type": etype, "schema_version": version, "assessment_modes": d["assessment_modes"],
+                         "collection": "available by PAM lookup (collector pending)" if is_lookup(cap, etype)
+                         else "collected", **({"caveats": d["caveats"]} if d.get("caveats") else {}),
                          "fields": {n: {"type": cat[n]["type"], "nullable": cat[n]["nullable"],
                                         **({"values": list(cat[n]["values"])} if cat[n]["values"] else {}),
                                         **({"unit": field_unit(n)} if field_unit(n) else {})}
@@ -993,25 +1028,46 @@ def _prompt_schema() -> dict[str, Any]:
     return strip(Proposal.model_json_schema())
 
 
-# Which requirement wording an evidence type can speak to (screen rule-screen-v1). A requirement is sent to the
-# model only when it relates to at least one declared evidence type; others are COLLECTOR_MISSING without a call.
-# Evidence types without an entry are always considered.
-SCREEN_VERSION = "rule-screen-v1"
-GROUNDING_VERSION = "rule-grounding-v2"
+# Which requirement wording an evidence type can speak to (screen rule-screen-v2). A requirement is sent to the
+# model only with the declared evidence types its wording relates to; with none it is COLLECTOR_MISSING without a
+# call. v2: every evidence type has an entry and a type without one is never offered (v1 offered it for every
+# requirement, so lookup-only types such as session_policy_configuration reached account-management requirements).
+SCREEN_VERSION = "rule-screen-v2"
+GROUNDING_VERSION = "rule-grounding-v3"
+# v3 also: a requirement about these subjects is not about PAM access events, whatever words it shares with them
+# ("Enforce authorized access to the corresponding private key" in IA-5(2) grounded an entitlement-status rule)
+OFF_SUBJECT: dict[str, tuple[str, ...]] = {
+    # IA-5(16) "issuance of authenticators ... with authorization by" grounded the same rule
+    "access_authorization": (r"private key", r"cryptograph", r"pki\b", r"certificat", r"issuance of"),
+}
 EVIDENCE_KEYWORDS: dict[str, tuple[str, ...]] = {
     "privileged_session": ("session", "record", "playback", "shadow"),
     "privileged_account": ("account", "inactiv", "dormant", "disable"),
     "credential_rotation": ("authenticator", "password", "credential", "rotat", "refresh"),
     "audit_event": ("audit record", "audit log", "event"),
+    "privileged_access_request": ("approv", "request"),
+    "access_authorization": ("authoriz", "entitle", "permission", "least privilege", "access enforcement"),
+    "authentication_summary": ("unsuccessful", "failed logon", "failed login", "logon attempt", "login attempt",
+                               "invalid logon", "lock"),
+    "privileged_access_authentication": ("multi-factor", "multifactor", "mfa", "two-factor", "authenticat"),
+    "mfa_configuration": ("multi-factor", "multifactor", "mfa", "two-factor"),
+    "break_glass_event": ("emergency", "break-glass", "break glass"),
+    "access_review": ("review", "recertif", "certif"),
+    "session_policy_configuration": ("inactiv", "idle", "session lock", "session termination", "timeout", "time-out",
+                                     "time out"),
+    "audit_log_coverage": ("audit", "logging"),
+    "policy_exception": ("exception", "waiver"),
 }
 
 
 # What a tested field means, as words the requirement must use for a rule on that field to test it (grounding
-# gate rule-grounding-v2). A field without an entry cannot ground a generated rule. Each term is a regular
+# gate rule-grounding-v3). A field without an entry cannot ground a generated rule. Each term is a regular
 # expression matched at a word start in the lower-case requirement text.
 # v2: session recording needs "record"/"recording"/"recorded", not the noun "records" ("audit records" in AU-3 is
 # about log content and grounded a session-recording rule under v1).
-RECORDING = r"record(?!s\b)"
+# v3: the bare noun "record" no longer counts either ("audit record reduction" in AU-7 grounded the session-recording
+# rule under v2); "recording"/"recorded", or "record" as a verb or a list item ("[...: record; view; ...]"), still do.
+RECORDING = r"record(?:ing|ed)\b|record(?=[;,\]]| (?:the|all|and|privileged|user|session))"
 FIELD_TERMS: dict[str, dict[str, tuple[str, ...]]] = {
     "privileged_session": {"recording_status": (RECORDING,), "recording_reference": (RECORDING,),
                            "recording_required": (RECORDING,),
@@ -1045,9 +1101,31 @@ FIELD_TERMS: dict[str, dict[str, tuple[str, ...]]] = {
 }
 
 
+def is_lookup(cap: dict[str, Any], etype: str) -> bool:
+    """True when the PAM holds this evidence but the collector does not send it yet (LOOKUP_AVAILABLE)."""
+    return ((cap.get("evidence_detail") or {}).get(etype) or {}).get("collection_status") == "LOOKUP_AVAILABLE"
+
+
+def declared_version(cap: dict[str, Any], etype: str) -> str | None:
+    """Declared schema version: collected types from the handshake evidence map, lookup types from their detail."""
+    if etype in (cap.get("evidence") or {}):
+        return cap["evidence"][etype]
+    return ((cap.get("evidence_detail") or {}).get(etype) or {}).get("schema_version") if is_lookup(cap, etype) else None
+
+
+def catalog_digest(cap: dict[str, Any]) -> str:
+    """What the PAM can supply (types, versions, modes, fields), independent of collection status, so a type moving
+    from LOOKUP_AVAILABLE to COLLECTED re-checks the stored proposal instead of asking the model again."""
+    detail = cap.get("evidence_detail") or {}
+    return digest_of({e: {"v": declared_version(cap, e), "modes": d.get("assessment_modes"),
+                          "fields": d.get("supported_fields")} for e, d in sorted(detail.items())})
+
+
 def grounded_fields(spec: RuleSpec, req: dict[str, Any]) -> list[str]:
     """Condition fields whose meaning the requirement text states (see FIELD_TERMS)."""
     text = (req.get("translation_en") or req.get("original_text") or "").lower()
+    if any(re.search(r"\b" + t, text) for t in OFF_SUBJECT.get(spec.evidence_type, ())):
+        return []
     terms = FIELD_TERMS.get(spec.evidence_type, {})
     return sorted({p.field for p in _predicates(spec.condition)
                    if any(re.search(r"\b" + t, text) for t in terms.get(p.field, ()))})
@@ -1062,8 +1140,7 @@ def relevant_evidence(req: dict[str, Any], cap: dict[str, Any]) -> list[str]:
         cat, supported = CUSTOM_RULE_FIELDS[etype], (cap["evidence_detail"][etype].get("supported_fields") or [])
         if not any(f in cat and cat[f]["type"] == "datetime" and not cat[f]["nullable"] for f in supported):
             continue  # no period field is collected for this type, so no generated rule can use it
-        words = EVIDENCE_KEYWORDS.get(etype)
-        if words is None or any(w in text for w in words):
+        if any(w in text for w in EVIDENCE_KEYWORDS.get(etype, ())):
             out.append(etype)
     return out
 
@@ -1090,8 +1167,11 @@ def _spec_grammar(db: CatalogDb, req: dict[str, Any], cap: dict[str, Any], etype
     """One RuleSpec branch per declared evidence type: its own version, modes and supported fields. None when the
     type has no collected non-null datetime field, since every generated rule needs one as its period field."""
     d = (cap.get("evidence_detail") or {})[etype]
-    versions = [str((cap.get("evidence") or {}).get(etype) or EVIDENCE_SCHEMA_VERSIONS.get(etype, "1.0"))]
-    fields = sorted(f for f in d.get("supported_fields") or [] if f in CUSTOM_RULE_FIELDS[etype])
+    versions = [str(declared_version(cap, etype) or EVIDENCE_SCHEMA_VERSIONS.get(etype, "1.0"))]
+    # record_id and scope_tags are bookkeeping: tag values are defined per organization and the model cannot know
+    # them (it invented tags such as "account_details"), so neither is offered as a testable field
+    fields = sorted(f for f in d.get("supported_fields") or [] if f in CUSTOM_RULE_FIELDS[etype]
+                    and f not in ("record_id", "scope_tags"))
     times = [f for f in fields if CUSTOM_RULE_FIELDS[etype][f]["type"] == "datetime"
              and not CUSTOM_RULE_FIELDS[etype][f]["nullable"]]
     if not times:
@@ -1102,31 +1182,89 @@ def _spec_grammar(db: CatalogDb, req: dict[str, Any], cap: dict[str, Any], etype
     settings = [(cid, name) for (cid, _v), defn in sorted(pc.CONTROLS.items())
                 for name, s in ((defn.get("parameter_schema") or {}).get("properties") or {}).items()
                 if s.get("type") in ("integer", "boolean")]
+    # parameter names: a closed list (Ollama ignores string patterns, so a free string let the model write "7.000..."
+    # as a parameter name); the organization-setting names plus generic thresholds by unit
+    # only integer thresholds take parameters in conditions; each name carries one unit and its own setting binding
+    param_unit = {n: p["unit"] for n, p in parameter_catalog().items()}
+    param_names = sorted(param_unit)
     text = {"type": "string", "minLength": 1, "maxLength": 400}
     lit = {"anyOf": [{"type": "boolean"}, {"type": "integer"}, {"type": "string", "maxLength": 64},
                      {"type": "array", "items": {"type": "string", "maxLength": 64}, "maxItems": 20}, {"type": "null"}]}
-    ops = {"enum": list(get_args(Operator))}
-    # a predicate takes a literal value (or none, for exists/not_exists) OR a declared parameter, never both
-    pred = {"anyOf": [
-        {"type": "object", "additionalProperties": False, "required": ["field", "operator", "value"],
-         "properties": {"field": {"enum": fields}, "operator": ops, "value": lit}},
-        {"type": "object", "additionalProperties": False, "required": ["field", "operator", "parameter"],
-         "properties": {"field": {"enum": fields}, "operator": ops,
-                        "parameter": {"type": "string", "minLength": 1, "maxLength": 64}}}]}
+    # a predicate takes a literal value (or none, for exists/not_exists) OR a declared parameter, never both; one
+    # branch per field type so the model can only pair a field with an operator its type allows (validate's table)
+    # (and exists/not_exists only for nullable fields: on a never-null field they test nothing)
+    by_type: dict[tuple[str, bool], list[str]] = {}
+    for f in fields:
+        by_type.setdefault((CUSTOM_RULE_FIELDS[etype][f]["type"], bool(CUSTOM_RULE_FIELDS[etype][f]["nullable"])),
+                           []).append(f)
+    order = list(get_args(Operator))
+
+    def predicate_grammar(population: bool) -> dict[str, Any]:
+        # validate(): 'contains' only in population filters; population filters take literals, never parameters
+        # exists/not_exists take no value; integer and datetime thresholds are declared parameters, never literals
+        # population filters only select scope by yes/no flags (privileged, recording_required, approval_required,
+        # ...); statuses, timestamps and counts are what a condition tests. Small models otherwise put the tested
+        # status into the filter too ("among AUTHORIZED records, each is AUTHORIZED"), which tests nothing.
+        # v12: scope flags (privileged, *_required, applies_to_*) only filter; everything else only in conditions,
+        # so a filter and the condition can never test the same field
+        def scope_flag(f: str) -> bool:
+            return f == "privileged" or f.endswith("_required") or f.startswith("applies_to_")
+        variants: list[dict[str, Any]] = []
+        for (ftype, nullable), all_names in sorted(by_type.items()):
+            if population and ftype != "boolean":
+                continue
+            names = [f for f in all_names if scope_flag(f) == population]
+            if not names:
+                continue
+            allowed = [o for o in order if o in _SPEC_OPS.get(ftype, ()) and (nullable or o not in _NULL_OPS)
+                       and (population or o != "contains")]
+            null_ops = [o for o in allowed if o in _NULL_OPS]
+            if null_ops:
+                variants.append({"type": "object", "additionalProperties": False, "required": ["field", "operator"],
+                                 "properties": {"field": {"enum": names}, "operator": {"enum": null_ops}}})
+            rest = [o for o in allowed if o not in _NULL_OPS]
+            if ftype in ("integer", "datetime"):
+                with_param = [o for o in rest if o in _PARAM_OPS]
+                for name in names if with_param and not population else []:
+                    # only parameter names whose unit fits the field (validate's unit rule)
+                    unit = "days" if ftype == "datetime" else field_unit(name)
+                    fit = [p for p in param_names if param_unit[p] == unit or (
+                        ftype == "integer" and (param_unit[p] in _TIME_UNITS and unit in _TIME_UNITS
+                                                or unit is None and param_unit[p] == "count"))]
+                    if fit:
+                        variants.append({"type": "object", "additionalProperties": False,
+                                         "required": ["field", "operator", "parameter"],
+                                         "properties": {"field": {"const": name}, "operator": {"enum": with_param},
+                                                        "parameter": {"enum": fit}}})
+            elif rest:
+                # literal values typed per field: booleans, or the field's enum values (scalar, or a list for in/not_in)
+                for name in names:
+                    allowed_values = list(CUSTOM_RULE_FIELDS[etype][name]["values"] or [])
+                    if ftype == "boolean":
+                        shapes = [(rest, {"type": "boolean"})]
+                    elif allowed_values:
+                        scalar = [o for o in rest if o not in ("in", "not_in")]
+                        listed = [o for o in rest if o in ("in", "not_in")]
+                        shapes = [s for s in ((scalar, {"enum": allowed_values}),
+                                              (listed, {"type": "array", "items": {"enum": allowed_values},
+                                                        "minItems": 1, "maxItems": len(allowed_values)})) if s[0]]
+                    else:
+                        shapes = [(rest, lit)]
+                    for ops_, value in shapes:
+                        variants.append({"type": "object", "additionalProperties": False,
+                                         "required": ["field", "operator", "value"],
+                                         "properties": {"field": {"const": name}, "operator": {"enum": ops_},
+                                                        "value": value}})
+        return {"anyOf": variants}
+    pred, pop_pred = predicate_grammar(False), predicate_grammar(True)
+    if not pred["anyOf"]:
+        return None  # nothing testable in a condition for this type (and Ollama rejects an empty anyOf)
     leaf = {"type": "object", "additionalProperties": False, "required": ["operator", "where"],
             "properties": {"operator": {"enum": ["all", "any", "none"]},
                            "where": {"type": "array", "items": pred, "minItems": 1, "maxItems": 10}}}
     root = {"type": "object", "additionalProperties": False, "required": ["operator", "where"],
             "properties": {"operator": {"enum": ["all", "any", "none"]},
                            "where": {"type": "array", "items": {"anyOf": [pred, leaf]}, "minItems": 1, "maxItems": 10}}}
-    binding = {"anyOf": [{"type": "object", "additionalProperties": False, "required": ["control_id", "parameter"],
-                          "properties": {"control_id": {"enum": sorted({c for c, _ in settings})},
-                                         "parameter": {"enum": sorted({n for _, n in settings})}}}, {"type": "null"}]}
-    param = {"type": "object", "additionalProperties": False, "required": ["type", "unit", "description",
-                                                                            "policy_control"],
-             "properties": {"type": {"enum": ["integer", "boolean"]},
-                            "unit": {"enum": ["days", "hours", "minutes", "seconds", "attempts", "count", "none"]},
-                            "description": text, "policy_control": binding}}
     spec = {"type": "object", "additionalProperties": False,
             "required": ["spec_version", "title", "description", "pam_control_id", "evidence_type",
                          "evidence_schema_version", "assessment_mode", "subject_field", "population", "parameters",
@@ -1135,12 +1273,18 @@ def _spec_grammar(db: CatalogDb, req: dict[str, Any], cap: dict[str, Any], etype
                 "spec_version": {"const": SPEC_VERSION}, "title": {"type": "string", "minLength": 3, "maxLength": 120},
                 "description": text, "pam_control_id": {"enum": controls}, "evidence_type": {"enum": etypes},
                 "evidence_schema_version": {"enum": versions}, "assessment_mode": {"enum": modes},
-                "subject_field": {"enum": fields},
+                "subject_field": {"enum": [f for f in fields if CUSTOM_RULE_FIELDS[etype][f]["type"] == "string"
+                                           and not CUSTOM_RULE_FIELDS[etype][f]["nullable"]] or fields},
                 "population": {"type": "object", "additionalProperties": False, "required": ["type", "period_field", "where"],
                                "properties": {"type": {"const": "ORGANIZATION_SUPPORTED_ENTITIES"},
                                               "period_field": {"enum": times},
-                                              "where": {"type": "array", "items": pred, "maxItems": 10}}},
-                "parameters": {"type": "object", "additionalProperties": param},
+                                              # Ollama rejects an empty anyOf: no filterable field, no filters
+                                              "where": ({"type": "array", "items": pop_pred, "maxItems": 10}
+                                                        if pop_pred["anyOf"] else
+                                                        {"type": "array", "maxItems": 0})}},
+                # OPM declares the parameters the condition names (parameter_catalog); listing every allowed name
+                # here made the model fill all of them and run out of output tokens
+                "parameters": {"type": "object", "additionalProperties": False, "properties": {}},
                 "condition": {"anyOf": [pred, root]},
                 "missing_evidence_result": {"const": "INSUFFICIENT_EVIDENCE"}, "coverage": {"const": "PARTIAL"},
                 "source_requirement_ids": {"type": "array", "items": {"const": req["id"]}, "minItems": 1, "maxItems": 1},
@@ -1172,9 +1316,11 @@ EXAMPLE_PROPOSAL = (
     '"equals","value":true,"parameter":null}]},"parameters":{},"condition":{"field":"recording_status","operator":'
     '"equals","value":"AVAILABLE","parameter":null},"missing_evidence_result":"INSUFFICIENT_EVIDENCE","coverage":'
     '"PARTIAL","source_requirement_ids":[0],"limitations":["Does not establish who may view recordings."]}}. '
-    'A threshold is never a literal: declare it under parameters (with policy_control when a listed organization '
-    'setting fits) and reference it with "parameter". When the listed evidence cannot test the obligation answer '
+    'A threshold is never a literal: put a parameter name from the schema in the condition (OPM declares it); '
+    'leave "parameters" empty. When the listed evidence cannot test the obligation answer '
     '{"decision":"NO_RULE","rule_spec":null,...}.')
+_EXAMPLE_LIMITATIONS = frozenset(x.strip().lower() for x in re.findall(
+    r'"limitations":\["([^"]+)"', EXAMPLE_PROPOSAL))
 
 
 # ---------------------------------------------------------------- orchestration per requirement
@@ -1346,6 +1492,51 @@ def _first_object(raw: str) -> Any:
     return value
 
 
+def parameter_catalog() -> dict[str, dict[str, Any]]:
+    """The parameter names a generated condition may use: each organization integer setting (bound to its policy
+    control when the name is unique) plus generic thresholds; every name has exactly one unit."""
+    owners: dict[str, list[str]] = {}
+    for (cid, _v), defn in sorted(pc.CONTROLS.items()):
+        for name, s in ((defn.get("parameter_schema") or {}).get("properties") or {}).items():
+            if s.get("type") == "integer":
+                owners.setdefault(name, []).append(cid)
+    out = {n: {"unit": u, "policy_control": None} for n, u in (
+        ("max_age_days", "days"), ("max_age_hours", "hours"), ("max_age_minutes", "minutes"),
+        ("max_seconds", "seconds"), ("max_count", "count"), ("min_count", "count"))}
+    for name, cids in owners.items():
+        out[name] = {"unit": field_unit(name) or "count",
+                     "policy_control": {"control_id": cids[0], "parameter": name} if len(set(cids)) == 1 else None}
+    return out
+
+
+def _declare_referenced_parameters(obj: dict[str, Any]) -> dict[str, Any]:
+    """Before schema validation, declare exactly the parameters the condition names: a catalogued name gets OPM's
+    declaration (type, unit, setting binding); another name keeps the model's own declaration if it gave one.
+    Unreferenced declarations are dropped (semantics-preserving: they cannot change what the rule tests)."""
+    spec = obj.get("rule_spec")
+    if not isinstance(spec, dict):
+        return obj
+    used: list[str] = []
+
+    def walk(n: Any) -> None:
+        if isinstance(n, dict):
+            if isinstance(n.get("parameter"), str) and n["parameter"] not in used:
+                used.append(n["parameter"])
+            for v in n.get("where") or []:
+                walk(v)
+    walk(spec.get("condition"))
+    given = spec.get("parameters") if isinstance(spec.get("parameters"), dict) else {}
+    known = parameter_catalog()
+    params = {}
+    for name in used:
+        if name in known:
+            params[name] = {"type": "integer", "unit": known[name]["unit"], "policy_control": known[name]["policy_control"],
+                            "description": f"Threshold {name.replace('_', ' ')} (declared by OPM from the condition)."}
+        elif name in given:
+            params[name] = given[name]
+    return {**obj, "rule_spec": {**spec, "parameters": params}}
+
+
 def _parse(raw: str, *, truncated: bool) -> tuple[dict[str, Any] | None, dict[str, Any] | None]:
     try:
         obj = _first_object(raw)
@@ -1357,6 +1548,10 @@ def _parse(raw: str, *, truncated: bool) -> tuple[dict[str, Any] | None, dict[st
         obj = {k: v for k, v in obj.items() if k != "rule_spec"}
     if isinstance(obj, dict):
         obj = _model_input(obj)
+        obj = _declare_referenced_parameters(obj)
+    # A population filter that repeats the condition is NOT repaired: removing it turns an empty rule into a
+    # stricter one the model never stated (AC-2 f: "among enabled accounts, each is enabled" became "every account
+    # must be enabled", which flags legitimate disabling). validate() rejects it instead.
     # scan exactly what would be used: the decoded object (string values), else the whole raw text
     bad = forbidden_content(json.dumps(obj, ensure_ascii=False) if obj is not None else raw)
     if bad:
@@ -1426,7 +1621,8 @@ def generate(db: CatalogDb, engine: Any, llm: Any, decisions: list[dict[str, Any
         proposal_key = digest_of({"requirement": digest_of({k: req[k] for k in ("id", "original_text", "translation_en",
                                                                                 "document_version_id")}),
                                   "ref": {k: ref.get(k) for k in ("canonical_id", "clause")},
-                                  "collector": cap.get("digest"), "prompt": PROMPT_VERSION, "spec": SPEC_VERSION,
+                                  "collector": catalog_digest(cap), "prompt": PROMPT_VERSION, "spec": SPEC_VERSION,
+                                  "screen": SCREEN_VERSION,
                                   "model": [model, model_digest]})
         record: dict[str, Any] = {"requirement_id": rid, "trigger_gap_code": d.get("gap_code")}
         raw, proposal_json, result, _called = _proposal_for(db, llm, req, ref, cap, scope=scope,
@@ -1498,7 +1694,17 @@ def generate(db: CatalogDb, engine: Any, llm: Any, decisions: list[dict[str, Any
                                 llm_prov={"model": model, "model_digest": model_digest,
                                           "prompt_version": PROMPT_VERSION, "proposal_key": proposal_key,
                                           "actor": me}, bundle_version=bundle_version or "")
-            if not publish:
+            if is_lookup(cap, spec.evidence_type):
+                # the PAM holds this data but the collector does not send it yet: nothing to evaluate, so the rule
+                # waits; the next job after the type is declared COLLECTED activates it from the stored proposal
+                result = {"outcome": GENERATED_RULE_VALIDATED, "gap_code": "COLLECTOR_MISSING",
+                          "rule_id": compiled["rule_id"], "rule_version": compiled["version"],
+                          "generated_rule_version_id": row["id"], "waiting_for_collector": {
+                              "evidence_type": spec.evidence_type,
+                              "fields": sorted(_fields(spec))},
+                          "message": f"validated, compiled and tested; waits until the collector sends "
+                                     f"{spec.evidence_type} (declared LOOKUP_AVAILABLE)"}
+            elif not publish:
                 result = {"outcome": GENERATED_RULE_VALIDATED, "gap_code": None, "rule_id": compiled["rule_id"],
                           "rule_version": compiled["version"], "generated_rule_version_id": row["id"],
                           "message": "validated, compiled and tested; activation was not requested"}
@@ -1548,6 +1754,8 @@ def generate(db: CatalogDb, engine: Any, llm: Any, decisions: list[dict[str, Any
                       message=result.get("message"), rule_id=validation["rule_id"],
                       rule_version=result.get("rule_version") or ("1.0" if compiled else None),
                       mapping_id=result.get("mapping_id"), generated_rule_version_id=result.get("generated_rule_version_id"),
+                      **({"waiting_for_collector": result["waiting_for_collector"]}
+                         if result.get("waiting_for_collector") else {}),
                       evidence_type=proposal.rule_spec.evidence_type if proposal and proposal.rule_spec else None,
                       evidence_schema_version=proposal.rule_spec.evidence_schema_version
                       if proposal and proposal.rule_spec else None,

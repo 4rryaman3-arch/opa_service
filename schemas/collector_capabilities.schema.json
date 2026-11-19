@@ -72,6 +72,50 @@
           ],
           "default": null,
           "title": "Supported Fields"
+        },
+        "collection_status": {
+          "default": "COLLECTED",
+          "enum": [
+            "COLLECTED",
+            "LOOKUP_AVAILABLE"
+          ],
+          "title": "Collection Status",
+          "type": "string"
+        },
+        "source_models": {
+          "anyOf": [
+            {
+              "items": {
+                "pattern": "^[A-Za-z0-9_.]{1,100}$",
+                "type": "string"
+              },
+              "maxItems": 20,
+              "type": "array"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Source Models"
+        },
+        "caveats": {
+          "anyOf": [
+            {
+              "items": {
+                "maxLength": 500,
+                "minLength": 1,
+                "type": "string"
+              },
+              "maxItems": 10,
+              "type": "array"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Caveats"
         }
       },
       "required": [
@@ -84,6 +128,19 @@
   },
   "additionalProperties": false,
   "properties": {
+    "schema_version": {
+      "anyOf": [
+        {
+          "const": "1.0",
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Schema Version"
+    },
     "tenant_id": {
       "pattern": "^[a-z0-9][a-z0-9-]{1,62}$",
       "title": "Tenant Id",
@@ -99,6 +156,25 @@
       "maxItems": 100,
       "title": "Evidence",
       "type": "array"
+    },
+    "settings_sources": {
+      "anyOf": [
+        {
+          "maxProperties": 50,
+          "patternProperties": {
+            "^[a-z][a-z0-9_]{0,63}$": {
+              "maxLength": 200,
+              "type": "string"
+            }
+          },
+          "type": "object"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Settings Sources"
     }
   },
   "required": [

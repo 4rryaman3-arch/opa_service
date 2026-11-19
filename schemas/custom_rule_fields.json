@@ -456,6 +456,54 @@
         "nullable": false
       }
     },
+    "audit_event": {
+      "record_id": {
+        "type": "string",
+        "nullable": false
+      },
+      "scope_tags": {
+        "type": "string_list",
+        "nullable": false
+      },
+      "event_id": {
+        "type": "string",
+        "nullable": false
+      },
+      "occurred_at": {
+        "type": "datetime",
+        "nullable": false
+      },
+      "event_type": {
+        "type": "string",
+        "nullable": true
+      },
+      "location_id": {
+        "type": "string",
+        "nullable": true
+      },
+      "source_id": {
+        "type": "string",
+        "nullable": true
+      },
+      "outcome": {
+        "type": "enum",
+        "nullable": true,
+        "values": [
+          "SUCCESS",
+          "FAILURE",
+          "DENIED",
+          "ERROR"
+        ]
+      },
+      "actor_id": {
+        "type": "string",
+        "nullable": true
+      },
+      "target_id": {
+        "type": "string",
+        "nullable": true
+      }
+    },
     "mfa_configuration": {
       "record_id": {
         "type": "string",

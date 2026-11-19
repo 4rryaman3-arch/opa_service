@@ -635,6 +635,17 @@ evidence schema; an unknown field is 422 `UNKNOWN_EVIDENCE_FIELD`). Generated ru
 evidence types that declare both, and may use only the declared fields. The response carries `evidence_detail`.
 Declarations without the detail keep their earlier digest.
 
+Each entry may also carry `collection_status`: `COLLECTED` (default, sent with evaluations today) or
+`LOOKUP_AVAILABLE` (the PAM database holds the data but the collector does not send it yet; needs both
+`assessment_modes` and `supported_fields`), plus informational `caveats[]` (shown to the rule generator) and
+`source_models[]`. Lookup types never count as collected (the `evidence` map, readiness and existing-rule matching
+ignore them). The rule generator designs, compiles and OPA-tests rules on them, then stores them as
+`GENERATED_RULE_VALIDATED` with `gap_code: COLLECTOR_MISSING` and `waiting_for_collector {evidence_type, fields[]}`:
+Django's list of what to collect. Once Django re-declares the type as `COLLECTED`, the next job re-checks the stored
+proposal (no new model call) and activates it. The body may be the PAM capability inventory file as-is:
+`evidence_capabilities` is accepted for `evidence`, and top-level `schema_version` and `settings_sources`
+(where each threshold lives in the PAM; the values themselves come from `PUT /admin/pam-configuration`) are accepted.
+
 **Gates, in order** (the first failing one is the outcome):
 1. Forbidden content anywhere in the output: code (Rego/Python), URLs, file paths, templates, credential material,
    claims of full coverage → `RULE_SPEC_INVALID`.
@@ -701,12 +712,13 @@ raw output. A retry with identical inputs re-checks the stored output without ca
   model_called}`. `reason` says why no rule was generated (e.g. "declared parameters not used by the condition").
   `rule_generation` is null in every other stage. These per-requirement markers are not added to `stages[]`.
 - Generation (prompt `rule-spec-v3`) only asks the model about a requirement whose wording relates to a declared
-  evidence type with a collected non-null timestamp (screen `rule-screen-v1`). Any other requirement is
+  evidence type with a collected non-null timestamp (screen `rule-screen-v2`: each evidence type has a keyword list, and only the types whose
+  keywords the requirement uses are offered to the model). Any other requirement is
   `COLLECTOR_MISSING` with `model_called: false`. The model decodes against a per-requirement grammar whose
   identifiers (PAM controls, evidence types, fields, settings) are enums of what exists. Declared parameters the
   condition never uses are dropped and recorded under `checks`. A condition that tests only the record's own id or
   period is rejected (`RULE_SPEC_INVALID`). The condition must also test at least one field whose meaning the
-  requirement text states (gate `rule-grounding-v2`; e.g. `enabled` needs "enable"/"disable", `recording_status`
+  requirement text states (gate `rule-grounding-v3`; e.g. `enabled` needs "enable"/"disable", `recording_status`
   needs "record"); otherwise `RULE_SPEC_INVALID` with the tested fields in `reason`.
 
 **Orchestration outcome per requirement** (`orchestration_outcome`):

@@ -11,6 +11,7 @@
     "policy_exception": "1.0",
     "access_review": "1.0",
     "audit_log_coverage": "1.0",
+    "audit_event": "1.0",
     "mfa_configuration": "1.0",
     "privileged_access_authentication": "1.0",
     "session_policy_configuration": "1.0"
@@ -808,6 +809,126 @@
         "integrity_verified"
       ],
       "title": "AuditLogCoverageRecord",
+      "type": "object"
+    },
+    "audit_event": {
+      "additionalProperties": false,
+      "description": "One audit log entry, reduced to identifiers. It records which elements the entry carries (NIST AU-3 style\ncontent: type, time, location, source, outcome, identities), never message text. Null means the source log\nentry did not contain that element.",
+      "properties": {
+        "record_id": {
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9._:@/-]{0,127}$",
+          "title": "Record Id",
+          "type": "string"
+        },
+        "scope_tags": {
+          "items": {
+            "pattern": "^[a-z0-9][a-z0-9._:-]{0,63}$",
+            "type": "string"
+          },
+          "maxItems": 20,
+          "title": "Scope Tags",
+          "type": "array"
+        },
+        "event_id": {
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9._:@/-]{0,127}$",
+          "title": "Event Id",
+          "type": "string"
+        },
+        "occurred_at": {
+          "format": "date-time",
+          "title": "Occurred At",
+          "type": "string"
+        },
+        "event_type": {
+          "anyOf": [
+            {
+              "pattern": "^[A-Za-z0-9][A-Za-z0-9._:@/-]{0,127}$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Event Type"
+        },
+        "location_id": {
+          "anyOf": [
+            {
+              "pattern": "^[A-Za-z0-9][A-Za-z0-9._:@/-]{0,127}$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Location Id"
+        },
+        "source_id": {
+          "anyOf": [
+            {
+              "pattern": "^[A-Za-z0-9][A-Za-z0-9._:@/-]{0,127}$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Source Id"
+        },
+        "outcome": {
+          "anyOf": [
+            {
+              "enum": [
+                "SUCCESS",
+                "FAILURE",
+                "DENIED",
+                "ERROR"
+              ],
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Outcome"
+        },
+        "actor_id": {
+          "anyOf": [
+            {
+              "pattern": "^[A-Za-z0-9][A-Za-z0-9._:@/-]{0,127}$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Actor Id"
+        },
+        "target_id": {
+          "anyOf": [
+            {
+              "pattern": "^[A-Za-z0-9][A-Za-z0-9._:@/-]{0,127}$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Target Id"
+        }
+      },
+      "required": [
+        "record_id",
+        "event_id",
+        "occurred_at"
+      ],
+      "title": "AuditEventRecord",
       "type": "object"
     },
     "mfa_configuration": {

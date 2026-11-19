@@ -20,7 +20,7 @@ import uuid
 from datetime import date
 from typing import Annotated, Any, Literal
 
-from pydantic import BaseModel, ConfigDict, Field, StringConstraints, model_validator
+from pydantic import AliasChoices, BaseModel, ConfigDict, Field, StringConstraints, model_validator
 
 from app.models.common import Identifier, TenantId, UtcDatetime, format_utc
 
@@ -100,7 +100,10 @@ class EvidenceSupport(_In):
     # database) but the collector does not send it yet. Rule generation may design and test rules on it; they stay
     # validated (not activated) until the type is declared COLLECTED. Nothing else treats it as collected.
     collection_status: Literal["COLLECTED", "LOOKUP_AVAILABLE"] = "COLLECTED"
-    caveats: Annotated[str, StringConstraints(max_length=500)] | None = None
+    source_models: list[Annotated[str, StringConstraints(pattern=r"^[A-Za-z0-9_.]{1,100}$")]] | None = Field(
+        default=None, max_length=20)  # informational (PAM tables the lookup reads)
+    caveats: list[Annotated[str, StringConstraints(min_length=1, max_length=500)]] | None = Field(
+        default=None, max_length=10)
 
     @model_validator(mode="after")
     def _lookup_needs_detail(self):
@@ -115,9 +118,15 @@ class CollectorInfo(_In):
 
 
 class CollectorCapabilitiesIn(_In):
+    # also accepts the PAM capability inventory file as-is (schema_version, evidence_capabilities, settings_sources)
+    schema_version: Literal["1.0"] | None = None
     tenant_id: TenantId
     collector: CollectorInfo
-    evidence: list[EvidenceSupport] = Field(max_length=100)
+    evidence: list[EvidenceSupport] = Field(max_length=100,
+                                            validation_alias=AliasChoices("evidence", "evidence_capabilities"))
+    # informational: where each threshold lives in the PAM; values arrive in PUT /pam-configuration
+    settings_sources: dict[Annotated[str, StringConstraints(pattern=r"^[a-z][a-z0-9_]{0,63}$")],
+                           Annotated[str, StringConstraints(max_length=200)]] | None = Field(default=None, max_length=50)
 
 
 PolicyVersionId = Annotated[str, StringConstraints(pattern=r"^pcv-[0-9a-f]{32}$")]
