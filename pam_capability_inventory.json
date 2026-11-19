@@ -1,0 +1,299 @@
+{
+  "schema_version": "1.0",
+  "tenant_id": "default",
+  "collector": {
+    "name": "securden-django-bridge",
+    "version": "3.0.0"
+  },
+  "evidence_capabilities": [
+    {
+      "evidence_type": "credential_rotation",
+      "schema_version": "1.0",
+      "collection_status": "COLLECTED",
+      "assessment_modes": ["EVENT_HISTORY"],
+      "supported_fields": [
+        "record_id",
+        "scope_tags",
+        "account_id",
+        "privileged",
+        "last_rotated_at",
+        "last_rotation_status"
+      ],
+      "source_models": [
+        "accountmanagement.Accounts",
+        "accountmanagement.PasswordHistory"
+      ],
+      "caveats": [
+        "Retained rotation history and current enterprise account inventory cannot reconstruct every historical account state."
+      ]
+    },
+    {
+      "evidence_type": "privileged_account",
+      "schema_version": "1.0",
+      "collection_status": "COLLECTED",
+      "assessment_modes": ["EVENT_HISTORY"],
+      "supported_fields": [
+        "record_id",
+        "scope_tags",
+        "account_id",
+        "privileged",
+        "enabled",
+        "created_at",
+        "last_used_at"
+      ],
+      "source_models": [
+        "accountmanagement.Accounts"
+      ],
+      "caveats": [
+        "Current last_accessed_at and account_status may not reconstruct historical periods."
+      ]
+    },
+    {
+      "evidence_type": "privileged_session",
+      "schema_version": "1.0",
+      "collection_status": "COLLECTED",
+      "assessment_modes": ["EVENT_HISTORY"],
+      "supported_fields": [
+        "record_id",
+        "scope_tags",
+        "session_id",
+        "account_id",
+        "user_id",
+        "started_at",
+        "ended_at",
+        "recording_required",
+        "recording_status",
+        "recording_reference"
+      ],
+      "source_models": [
+        "audit.AccountActiveRemoteSession",
+        "audit.RecordedSessionActivity"
+      ],
+      "caveats": [
+        "Recording metadata does not prove complete recording content or external-share sessions without a PAM user."
+      ]
+    },
+    {
+      "evidence_type": "privileged_access_request",
+      "schema_version": "1.0",
+      "collection_status": "LOOKUP_AVAILABLE",
+      "assessment_modes": ["EVENT_HISTORY"],
+      "supported_fields": [
+        "record_id",
+        "scope_tags",
+        "access_id",
+        "user_id",
+        "account_id",
+        "accessed_at",
+        "approval_required",
+        "approval_status",
+        "approval_id",
+        "approved_at",
+        "approver_id"
+      ],
+      "source_models": [
+        "accountmanagement.AccountAdminPrivilegeRequest",
+        "accountmanagement.TechnicianAccessRequest"
+      ],
+      "caveats": [
+        "Requires a Django collector bridging AccountAdminPrivilegeRequest (current_status, level_to_approve, approved_by, approved_start_final_time)."
+      ]
+    },
+    {
+      "evidence_type": "access_authorization",
+      "schema_version": "1.0",
+      "collection_status": "LOOKUP_AVAILABLE",
+      "assessment_modes": ["EVENT_HISTORY"],
+      "supported_fields": [
+        "record_id",
+        "scope_tags",
+        "access_id",
+        "user_id",
+        "account_id",
+        "accessed_at",
+        "entitlement_status",
+        "entitlement_id",
+        "entitlement_valid_from",
+        "entitlement_valid_to"
+      ],
+      "source_models": [
+        "accountmanagement.AccountUsers",
+        "accountmanagement.AccountGroups",
+        "accountmanagement.FolderAccountUsers",
+        "accountmanagement.FolderUsers",
+        "audit.AccountActivity"
+      ],
+      "caveats": [
+        "Requires a Django collector joining AccountActivity with AccountUsers/AccountGroups entitlement state."
+      ]
+    },
+    {
+      "evidence_type": "authentication_summary",
+      "schema_version": "1.0",
+      "collection_status": "LOOKUP_AVAILABLE",
+      "assessment_modes": ["EVENT_HISTORY"],
+      "supported_fields": [
+        "record_id",
+        "scope_tags",
+        "principal_id",
+        "window_start",
+        "window_end",
+        "failed_attempts",
+        "lockout_triggered"
+      ],
+      "source_models": [
+        "usermanagement.UserProfileAddInfo",
+        "audit.UserActivity"
+      ],
+      "caveats": [
+        "UserProfileAddInfo tracks current failed_attempts and locked_until; historical window aggregation requires UserActivity correlation."
+      ]
+    },
+    {
+      "evidence_type": "break_glass_event",
+      "schema_version": "1.0",
+      "collection_status": "LOOKUP_AVAILABLE",
+      "assessment_modes": ["EVENT_HISTORY"],
+      "supported_fields": [
+        "record_id",
+        "scope_tags",
+        "event_id",
+        "user_id",
+        "activated_at",
+        "justification_provided",
+        "justification_length"
+      ],
+      "source_models": [
+        "usermanagement.EmergencyAccessConfiguration",
+        "usermanagement.EmergencyAccessUsers"
+      ],
+      "caveats": [
+        "EmergencyAccessUsers records user, declared_time, and reason; account_id, ticket_reference, and post_review_completed are not stored natively."
+      ]
+    },
+    {
+      "evidence_type": "access_review",
+      "schema_version": "1.0",
+      "collection_status": "LOOKUP_AVAILABLE",
+      "assessment_modes": ["EVENT_HISTORY"],
+      "supported_fields": [
+        "record_id",
+        "scope_tags",
+        "account_id",
+        "privileged",
+        "enabled",
+        "reviewer_id",
+        "last_review_completed_at",
+        "last_review_outcome"
+      ],
+      "source_models": [
+        "iga.CertificationItem",
+        "iga.CertificationReviewTask"
+      ],
+      "caveats": [
+        "Requires IGA CertificationItem/CertificationReviewTask collector mapping decision to CERTIFIED/REVOKED."
+      ]
+    },
+    {
+      "evidence_type": "mfa_configuration",
+      "schema_version": "1.0",
+      "collection_status": "LOOKUP_AVAILABLE",
+      "assessment_modes": ["CONFIGURATION_SNAPSHOT"],
+      "supported_fields": [
+        "record_id",
+        "scope_tags",
+        "principal_id",
+        "principal_type",
+        "enabled",
+        "mfa_enforced",
+        "mfa_methods",
+        "captured_at"
+      ],
+      "source_models": [
+        "usermanagement.MFA",
+        "usermanagement.UserMFAConfig",
+        "usermanagement.UserMFAMap",
+        "usermanagement.GroupMFAMap"
+      ],
+      "caveats": [
+        "Maps MFA enum (MAIL_OTP, GOOGLE, RADIUS, EMAIL_SMS, DUO, YUBIKEY, MICROSOFT, TOTP, SECURDEN_AUTHENTICATOR) and UserMFAConfig."
+      ]
+    },
+    {
+      "evidence_type": "privileged_access_authentication",
+      "schema_version": "1.0",
+      "collection_status": "LOOKUP_AVAILABLE",
+      "assessment_modes": ["EVENT_HISTORY"],
+      "supported_fields": [
+        "record_id",
+        "scope_tags",
+        "access_id",
+        "user_id",
+        "account_id",
+        "accessed_at",
+        "access_granted",
+        "mfa_status",
+        "mfa_method"
+      ],
+      "source_models": [
+        "audit.UserActivity",
+        "audit.AccountActivity",
+        "usermanagement.MFA",
+        "usermanagement.UserMFAConfig"
+      ],
+      "caveats": [
+        "Requires joining AccountActivity/UserActivity login events with UserMFAConfig/MFA method status (covers HIPAA 164.312(d) and PCI-DSS Req 8.3/8.4 MFA-at-access)."
+      ]
+    },
+    {
+      "evidence_type": "session_policy_configuration",
+      "schema_version": "1.0",
+      "collection_status": "LOOKUP_AVAILABLE",
+      "assessment_modes": ["CONFIGURATION_SNAPSHOT"],
+      "supported_fields": [
+        "record_id",
+        "scope_tags",
+        "policy_id",
+        "applies_to_privileged",
+        "idle_timeout_enabled",
+        "idle_timeout_minutes",
+        "captured_at"
+      ],
+      "source_models": [
+        "pam.Configurations"
+      ],
+      "caveats": [
+        "Requires reading session idle timeout keys from pam.Configurations."
+      ]
+    },
+    {
+      "evidence_type": "audit_log_coverage",
+      "schema_version": "1.0",
+      "collection_status": "LOOKUP_AVAILABLE",
+      "assessment_modes": ["EVENT_HISTORY"],
+      "supported_fields": [
+        "record_id",
+        "scope_tags",
+        "source_id",
+        "coverage_start",
+        "coverage_end",
+        "expected_event_count",
+        "received_event_count",
+        "max_gap_seconds"
+      ],
+      "source_models": [
+        "audit.UserActivity",
+        "audit.AccountActivity"
+      ],
+      "caveats": [
+        "integrity_verified is omitted because UserActivity/AccountActivity do not store cryptographic log-chain hashes."
+      ]
+    }
+  ],
+  "settings_sources": {
+    "max_rotation_age_days": "accountmanagement.PasswordPolicy.max_password_age",
+    "max_failed_attempts": "pam.Configurations (login attempt limit)",
+    "accepted_methods": "usermanagement.MFA (enabled=True)",
+    "max_idle_minutes": "pam.Configurations (session idle timeout)"
+  }
+}
