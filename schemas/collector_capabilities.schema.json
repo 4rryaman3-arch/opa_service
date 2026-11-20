@@ -73,6 +73,23 @@
           "default": null,
           "title": "Supported Fields"
         },
+        "lookup_fields": {
+          "anyOf": [
+            {
+              "items": {
+                "pattern": "^[a-z][a-z0-9_]{0,63}$",
+                "type": "string"
+              },
+              "maxItems": 64,
+              "type": "array"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Lookup Fields"
+        },
         "collection_status": {
           "default": "COLLECTED",
           "enum": [

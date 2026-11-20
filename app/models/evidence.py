@@ -32,6 +32,7 @@ class CredentialRotationRecord(BaseRecord):
     privileged: StrictBool
     last_rotated_at: UtcDatetime | None
     last_rotation_status: Literal["SUCCESS", "FAILED"] | None = None
+    captured_at: UtcDatetime | None = None
 
 
 class PrivilegedSessionRecord(BaseRecord):
@@ -43,6 +44,7 @@ class PrivilegedSessionRecord(BaseRecord):
     recording_required: StrictBool
     recording_status: Literal["AVAILABLE", "PARTIAL", "MISSING", "FAILED", "PROCESSING"]
     recording_reference: Identifier | None = None
+    credential_reset_after_use: StrictBool | None = None
 
     @model_validator(mode="after")
     def _check(self):
@@ -61,6 +63,9 @@ class PrivilegedAccessRequestRecord(BaseRecord):
     approval_id: Identifier | None = None
     approved_at: UtcDatetime | None = None
     approver_id: Identifier | None = None
+    approvals_required: Count | None = None
+    approvals_received: Count | None = None
+    credential_reset_after_use: StrictBool | None = None
 
     @model_validator(mode="after")
     def _check(self):
@@ -75,6 +80,7 @@ class PrivilegedAccountRecord(BaseRecord):
     enabled: StrictBool
     created_at: UtcDatetime
     last_used_at: UtcDatetime | None
+    owner_id: Identifier | None = None
 
     @model_validator(mode="after")
     def _check(self):
@@ -253,6 +259,81 @@ class SessionPolicyConfigurationRecord(BaseRecord):
         return self
 
 
+class EndpointElevationRecord(BaseRecord):
+    """Event history: temporary privilege elevation on managed endpoints (AC-6(10), CM-11)."""
+
+    elevation_id: Identifier
+    user_id: Identifier
+    device_id: Identifier
+    requested_at: UtcDatetime
+    approval_status: Literal["APPROVED", "AUTO_APPROVED", "PENDING", "DENIED"]
+    application_id: Identifier | None = None
+    approver_id: Identifier | None = None
+    approved_at: UtcDatetime | None = None
+    elevation_expires_at: UtcDatetime | None = None
+    revoked_at: UtcDatetime | None = None
+
+    @model_validator(mode="after")
+    def _check(self):
+        if self.elevation_expires_at is not None and self.elevation_expires_at < self.requested_at:
+            raise ValueError("elevation_expires_at precedes requested_at")
+        if self.approved_at is not None and self.approved_at < self.requested_at:
+            raise ValueError("approved_at precedes requested_at")
+        return self
+
+
+class LocalAdminMembershipRecord(BaseRecord):
+    """Configuration snapshot: membership in local administrator / sudoers groups on endpoints (AC-6(5))."""
+
+    device_id: Identifier
+    account_id: Identifier
+    approved_member: StrictBool
+    captured_at: UtcDatetime
+
+
+class ApplicationControlPolicyRecord(BaseRecord):
+    """Configuration snapshot: allowlist / blocklist application control policy (CM-7(4), CM-7(5))."""
+
+    policy_id: Identifier
+    mode: Literal["ALLOWLIST", "BLOCKLIST", "MONITOR"]
+    enforced: StrictBool
+    captured_at: UtcDatetime
+
+
+class PasswordPolicyConfigurationRecord(BaseRecord):
+    """Configuration snapshot: password complexity, length, and history configuration (IA-5(1))."""
+
+    policy_id: Identifier
+    applies_to_privileged: StrictBool
+    min_length: Annotated[StrictInt, Field(ge=0, le=1000)]
+    complexity_required: StrictBool
+    enforced_on_reset: StrictBool
+    captured_at: UtcDatetime
+    rotation_period_days: Count | None = None
+    history_count: Count | None = None
+
+
+class AuditForwardingConfigurationRecord(BaseRecord):
+    """Configuration snapshot: real-time audit log export / SIEM forwarding destination (AU-4(1), AU-6(4))."""
+
+    destination_id: Identifier
+    protocol: Literal["SYSLOG", "API", "OTHER"]
+    enabled: StrictBool
+    captured_at: UtcDatetime
+    last_delivery_at: UtcDatetime | None = None
+
+
+class BackupConfigurationRecord(BaseRecord):
+    """Configuration snapshot: scheduled and encrypted backup configuration (CP-9(8))."""
+
+    backup_id: Identifier
+    scheduled: StrictBool
+    encrypted: StrictBool
+    captured_at: UtcDatetime
+    last_backup_at: UtcDatetime | None = None
+    last_backup_status: Literal["SUCCESS", "FAILED"] | None = None
+
+
 EVIDENCE_MODELS: dict[str, type[BaseRecord]] = {
     "credential_rotation": CredentialRotationRecord,
     "privileged_session": PrivilegedSessionRecord,
@@ -268,6 +349,12 @@ EVIDENCE_MODELS: dict[str, type[BaseRecord]] = {
     "mfa_configuration": MfaConfigurationRecord,
     "privileged_access_authentication": PrivilegedAccessAuthenticationRecord,
     "session_policy_configuration": SessionPolicyConfigurationRecord,
+    "endpoint_elevation": EndpointElevationRecord,
+    "local_admin_membership": LocalAdminMembershipRecord,
+    "application_control_policy": ApplicationControlPolicyRecord,
+    "password_policy_configuration": PasswordPolicyConfigurationRecord,
+    "audit_forwarding_configuration": AuditForwardingConfigurationRecord,
+    "backup_configuration": BackupConfigurationRecord,
 }
 
 # Versioned evidence contracts. A collector declares the versions it produces
@@ -289,6 +376,12 @@ EvidenceType = Literal[
     "mfa_configuration",
     "privileged_access_authentication",
     "session_policy_configuration",
+    "endpoint_elevation",
+    "local_admin_membership",
+    "application_control_policy",
+    "password_policy_configuration",
+    "audit_forwarding_configuration",
+    "backup_configuration",
 ]
 
 # Timestamp fields that may legitimately lie after the reporting period end
@@ -299,6 +392,7 @@ FUTURE_ALLOWED_FIELDS: dict[str, frozenset[str]] = {
     "access_authorization": frozenset({"entitlement_valid_to"}),
     "policy_exception": frozenset({"expires_at"}),
     "audit_log_coverage": frozenset({"coverage_end"}),
+    "endpoint_elevation": frozenset({"elevation_expires_at"}),
 }
 
 
@@ -321,6 +415,7 @@ CUSTOM_RULE_FIELDS: dict[str, dict[str, dict]] = {
         "privileged": _f("boolean"),
         "last_rotated_at": _f("datetime", True),
         "last_rotation_status": _f("enum", True, ("SUCCESS", "FAILED")),
+        "captured_at": _f("datetime", False),
     },
     "privileged_session": {
         **_COMMON,
@@ -332,6 +427,7 @@ CUSTOM_RULE_FIELDS: dict[str, dict[str, dict]] = {
         "recording_required": _f("boolean"),
         "recording_status": _f("enum", False, ("AVAILABLE", "PARTIAL", "MISSING", "FAILED", "PROCESSING")),
         "recording_reference": _f("string", True),
+        "credential_reset_after_use": _f("boolean", True),
     },
     "privileged_access_request": {
         **_COMMON,
@@ -344,6 +440,9 @@ CUSTOM_RULE_FIELDS: dict[str, dict[str, dict]] = {
         "approval_id": _f("string", True),
         "approved_at": _f("datetime", True),
         "approver_id": _f("string", True),
+        "approvals_required": _f("integer", True),
+        "approvals_received": _f("integer", True),
+        "credential_reset_after_use": _f("boolean", True),
     },
     "privileged_account": {
         **_COMMON,
@@ -352,6 +451,7 @@ CUSTOM_RULE_FIELDS: dict[str, dict[str, dict]] = {
         "enabled": _f("boolean"),
         "created_at": _f("datetime"),
         "last_used_at": _f("datetime", True),
+        "owner_id": _f("string", True),
     },
     "authentication_summary": {
         **_COMMON,
@@ -451,5 +551,60 @@ CUSTOM_RULE_FIELDS: dict[str, dict[str, dict]] = {
         "idle_timeout_enabled": _f("boolean"),
         "idle_timeout_minutes": _f("integer", True),
         "captured_at": _f("datetime"),
+    },
+    "endpoint_elevation": {
+        **_COMMON,
+        "elevation_id": _f("string"),
+        "user_id": _f("string"),
+        "device_id": _f("string"),
+        "requested_at": _f("datetime"),
+        "approval_status": _f("enum", False, ("APPROVED", "AUTO_APPROVED", "PENDING", "DENIED")),
+        "application_id": _f("string", True),
+        "approver_id": _f("string", True),
+        "approved_at": _f("datetime", True),
+        "elevation_expires_at": _f("datetime", True),
+        "revoked_at": _f("datetime", True),
+    },
+    "local_admin_membership": {
+        **_COMMON,
+        "device_id": _f("string"),
+        "account_id": _f("string"),
+        "approved_member": _f("boolean"),
+        "captured_at": _f("datetime"),
+    },
+    "application_control_policy": {
+        **_COMMON,
+        "policy_id": _f("string"),
+        "mode": _f("enum", False, ("ALLOWLIST", "BLOCKLIST", "MONITOR")),
+        "enforced": _f("boolean"),
+        "captured_at": _f("datetime"),
+    },
+    "password_policy_configuration": {
+        **_COMMON,
+        "policy_id": _f("string"),
+        "applies_to_privileged": _f("boolean"),
+        "min_length": _f("integer"),
+        "complexity_required": _f("boolean"),
+        "enforced_on_reset": _f("boolean"),
+        "captured_at": _f("datetime"),
+        "rotation_period_days": _f("integer", True),
+        "history_count": _f("integer", True),
+    },
+    "audit_forwarding_configuration": {
+        **_COMMON,
+        "destination_id": _f("string"),
+        "protocol": _f("enum", False, ("SYSLOG", "API", "OTHER")),
+        "enabled": _f("boolean"),
+        "captured_at": _f("datetime"),
+        "last_delivery_at": _f("datetime", True),
+    },
+    "backup_configuration": {
+        **_COMMON,
+        "backup_id": _f("string"),
+        "scheduled": _f("boolean"),
+        "encrypted": _f("boolean"),
+        "captured_at": _f("datetime"),
+        "last_backup_at": _f("datetime", True),
+        "last_backup_status": _f("enum", True, ("SUCCESS", "FAILED")),
     },
 }

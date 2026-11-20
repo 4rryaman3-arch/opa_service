@@ -96,6 +96,10 @@ class EvidenceSupport(_In):
         default=None, min_length=1, max_length=2)
     supported_fields: list[Annotated[str, StringConstraints(pattern=r"^[a-z][a-z0-9_]{0,63}$")]] | None = Field(
         default=None, min_length=1, max_length=64)
+    # Fields that exist in the PAM database/model for this evidence type but are not yet sent by the collector.
+    # When Django ships a field, move it from lookup_fields to supported_fields.
+    lookup_fields: list[Annotated[str, StringConstraints(pattern=r"^[a-z][a-z0-9_]{0,63}$")]] | None = Field(
+        default=None, max_length=64)
     # COLLECTED: sent with evaluations today. LOOKUP_AVAILABLE: the PAM holds this data (a lookup over its
     # database) but the collector does not send it yet. Rule generation may design and test rules on it; they stay
     # validated (not activated) until the type is declared COLLECTED. Nothing else treats it as collected.

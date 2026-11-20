@@ -19,6 +19,9 @@
         "last_rotated_at",
         "last_rotation_status"
       ],
+      "lookup_fields": [
+        "captured_at"
+      ],
       "source_models": [
         "accountmanagement.Accounts",
         "accountmanagement.PasswordHistory",
@@ -49,6 +52,10 @@
         "last_rotation_status": {
           "meaning": "Outcome of the most recent automated or on-demand credential rotation attempt.",
           "shows": "SUCCESS when password/key rotation succeeded; FAILED when rotation failed or is non-compliant."
+        },
+        "captured_at": {
+          "meaning": "UTC timestamp when the credential rotation snapshot was captured.",
+          "shows": "Snapshot timestamp used as reporting period anchor when last_rotated_at is null."
         }
       }
     },
@@ -65,6 +72,9 @@
         "enabled",
         "created_at",
         "last_used_at"
+      ],
+      "lookup_fields": [
+        "owner_id"
       ],
       "source_models": [
         "accountmanagement.Accounts",
@@ -98,6 +108,10 @@
         "last_used_at": {
           "meaning": "UTC timestamp when the account was last accessed or used for a session or checkout.",
           "shows": "Dormancy duration in days since last use (or null if never used since onboarding)."
+        },
+        "owner_id": {
+          "meaning": "Identifier of the user or custodian who owns or is responsible for the privileged account.",
+          "shows": "Account ownership and individual custodian assignment for privileged accounts."
         }
       }
     },
@@ -117,6 +131,9 @@
         "recording_required",
         "recording_status",
         "recording_reference"
+      ],
+      "lookup_fields": [
+        "credential_reset_after_use"
       ],
       "source_models": [
         "audit.AccountActiveRemoteSession",
@@ -161,6 +178,10 @@
         "recording_reference": {
           "meaning": "Opaque identifier referencing the stored session recording file or trail.",
           "shows": "Whether a verifiable recording artifact link exists (non-null) for audit playback."
+        },
+        "credential_reset_after_use": {
+          "meaning": "Whether the account credential was automatically reset or invalidated immediately following session termination.",
+          "shows": "One-time-use credential invalidation protecting against post-session replay."
         }
       }
     },
@@ -181,6 +202,11 @@
         "approval_id",
         "approved_at",
         "approver_id"
+      ],
+      "lookup_fields": [
+        "approvals_required",
+        "approvals_received",
+        "credential_reset_after_use"
       ],
       "source_models": [
         "accountmanagement.AccountAdminPrivilegeRequest",
@@ -226,6 +252,18 @@
         "approver_id": {
           "meaning": "Identifier of the designated approver who authorized the request.",
           "shows": "Whether an accountable approver authorized the privileged access (non-null)."
+        },
+        "approvals_required": {
+          "meaning": "Number of approvals required by policy before the access request is granted.",
+          "shows": "Threshold of required approvers (e.g. dual authorization / two-person rule)."
+        },
+        "approvals_received": {
+          "meaning": "Number of valid approvals actually recorded for this request.",
+          "shows": "Whether the required quorum of approvals was attained prior to granting access."
+        },
+        "credential_reset_after_use": {
+          "meaning": "Whether the credential checked out under this request was reset after completion.",
+          "shows": "Enforcement of post-use credential revocation or password change."
         }
       }
     },
@@ -787,6 +825,305 @@
         "captured_at": {
           "meaning": "UTC timestamp when the session policy configuration snapshot was captured.",
           "shows": "Snapshot timestamp within the reporting period."
+        }
+      }
+    },
+    {
+      "evidence_type": "endpoint_elevation",
+      "schema_version": "1.0",
+      "collection_status": "LOOKUP_AVAILABLE",
+      "assessment_modes": ["EVENT_HISTORY"],
+      "supported_fields": [
+        "record_id",
+        "scope_tags",
+        "elevation_id",
+        "user_id",
+        "device_id",
+        "requested_at",
+        "approval_status",
+        "application_id",
+        "approver_id",
+        "approved_at",
+        "elevation_expires_at",
+        "revoked_at"
+      ],
+      "source_models": [
+        "endpoint.EndpointElevation",
+        "accountmanagement.AccountAdminPrivilegeRequest"
+      ],
+      "caveats": [
+        "Covers NIST AC-6(10), CM-11 temporary endpoint elevation, application-specific elevation approval workflows, and time-bound privilege expiration."
+      ],
+      "field_meanings": {
+        "elevation_id": {
+          "meaning": "Unique identifier of the endpoint privilege elevation request or grant event.",
+          "shows": "Which local or JIT privilege elevation event on the endpoint is being evaluated."
+        },
+        "user_id": {
+          "meaning": "Identifier of the user requesting or executing privilege elevation on the endpoint.",
+          "shows": "Individual accountability for endpoint elevation."
+        },
+        "device_id": {
+          "meaning": "Identifier of the endpoint workstation, server, or device where elevation occurred.",
+          "shows": "Which target device was subject to privilege elevation."
+        },
+        "requested_at": {
+          "meaning": "UTC timestamp when endpoint privilege elevation was requested.",
+          "shows": "Event timestamp within the reporting period."
+        },
+        "approval_status": {
+          "meaning": "Approval state of the elevation request (APPROVED, AUTO_APPROVED, PENDING, DENIED).",
+          "shows": "APPROVED or AUTO_APPROVED when authorized by policy or approver; PENDING or DENIED when unauthorized."
+        },
+        "application_id": {
+          "meaning": "Identifier of the specific application or binary elevated with administrative rights.",
+          "shows": "Which application was executed with elevated privileges."
+        },
+        "approver_id": {
+          "meaning": "Identifier of the designated authority who approved the endpoint elevation.",
+          "shows": "Accountable approver for the elevation grant (exists / non-null)."
+        },
+        "approved_at": {
+          "meaning": "UTC timestamp when the endpoint elevation request was approved.",
+          "shows": "Approval timestamp within policy time bounds."
+        },
+        "elevation_expires_at": {
+          "meaning": "UTC timestamp when temporary endpoint administrative elevation expires.",
+          "shows": "Enforcement of time-bound Just-in-Time elevation on the endpoint."
+        },
+        "revoked_at": {
+          "meaning": "UTC timestamp when the elevated rights were explicitly revoked or terminated.",
+          "shows": "Timely revocation of elevated endpoint privileges."
+        }
+      }
+    },
+    {
+      "evidence_type": "local_admin_membership",
+      "schema_version": "1.0",
+      "collection_status": "LOOKUP_AVAILABLE",
+      "assessment_modes": ["CONFIGURATION_SNAPSHOT"],
+      "supported_fields": [
+        "record_id",
+        "scope_tags",
+        "device_id",
+        "account_id",
+        "approved_member",
+        "captured_at"
+      ],
+      "source_models": [
+        "endpoint.LocalAdminMembership",
+        "accountmanagement.Accounts"
+      ],
+      "caveats": [
+        "Covers NIST AC-6(5) local administrative group membership auditing, unauthorized local administrator detection, and workstation privilege hygiene."
+      ],
+      "field_meanings": {
+        "device_id": {
+          "meaning": "Identifier of the endpoint workstation or server hosting the local Administrators group.",
+          "shows": "Which endpoint's local administrative membership is being evaluated."
+        },
+        "account_id": {
+          "meaning": "Identifier of the user or group account present in the local administrative group.",
+          "shows": "Which account holds local administrator rights on the device."
+        },
+        "approved_member": {
+          "meaning": "Whether this account is an explicitly authorized and policy-approved member of the local administrative group.",
+          "shows": "True when local admin rights are sanctioned; false when unauthorized administrative rights exist."
+        },
+        "captured_at": {
+          "meaning": "UTC timestamp when the local admin membership snapshot was captured.",
+          "shows": "Snapshot timestamp within the reporting period."
+        }
+      }
+    },
+    {
+      "evidence_type": "application_control_policy",
+      "schema_version": "1.0",
+      "collection_status": "LOOKUP_AVAILABLE",
+      "assessment_modes": ["CONFIGURATION_SNAPSHOT"],
+      "supported_fields": [
+        "record_id",
+        "scope_tags",
+        "policy_id",
+        "mode",
+        "enforced",
+        "captured_at"
+      ],
+      "source_models": [
+        "security.ApplicationControlPolicy",
+        "pam.Configurations"
+      ],
+      "caveats": [
+        "Covers NIST CM-7(4), CM-7(5) application whitelisting, blacklisting execution controls, and authorized software enforcement."
+      ],
+      "field_meanings": {
+        "policy_id": {
+          "meaning": "Unique identifier of the application whitelisting/blacklisting control policy.",
+          "shows": "Which application execution control policy snapshot is being checked."
+        },
+        "mode": {
+          "meaning": "Operational mode of application control (ALLOWLIST, BLOCKLIST, MONITOR).",
+          "shows": "ALLOWLIST for strict unauthorized software blocking; BLOCKLIST or MONITOR otherwise."
+        },
+        "enforced": {
+          "meaning": "Whether the application control policy is actively enforced on target systems.",
+          "shows": "True when execution restrictions are strictly enforced to prevent unauthorized software."
+        },
+        "captured_at": {
+          "meaning": "UTC timestamp when the application control policy snapshot was captured.",
+          "shows": "Snapshot timestamp within the reporting period."
+        }
+      }
+    },
+    {
+      "evidence_type": "password_policy_configuration",
+      "schema_version": "1.0",
+      "collection_status": "LOOKUP_AVAILABLE",
+      "assessment_modes": ["CONFIGURATION_SNAPSHOT"],
+      "supported_fields": [
+        "record_id",
+        "scope_tags",
+        "policy_id",
+        "applies_to_privileged",
+        "min_length",
+        "complexity_required",
+        "enforced_on_reset",
+        "rotation_period_days",
+        "history_count",
+        "captured_at"
+      ],
+      "source_models": [
+        "accountmanagement.PasswordPolicy",
+        "accountmanagement.AccountPolicyMap"
+      ],
+      "caveats": [
+        "Covers NIST IA-5(1) password configuration verification: minimum length, multi-class complexity, rotation period, and password reuse history count."
+      ],
+      "field_meanings": {
+        "policy_id": {
+          "meaning": "Unique identifier of the password or authenticator policy configuration.",
+          "shows": "Which password configuration snapshot is being evaluated."
+        },
+        "applies_to_privileged": {
+          "meaning": "Whether this password policy configuration applies to privileged accounts and administrators.",
+          "shows": "Scope filter selecting password policies that govern privileged credentials."
+        },
+        "min_length": {
+          "meaning": "Configured minimum password length in characters.",
+          "shows": "Whether the required minimum length meets or exceeds the regulatory threshold."
+        },
+        "complexity_required": {
+          "meaning": "Whether password complexity (uppercase, lowercase, numbers, special characters) is strictly required.",
+          "shows": "True when multi-character-class complexity is enforced."
+        },
+        "enforced_on_reset": {
+          "meaning": "Whether policy rules are strictly enforced upon password reset and creation.",
+          "shows": "True when non-compliant passwords cannot be set during reset or change."
+        },
+        "rotation_period_days": {
+          "meaning": "Configured maximum password lifetime in days before forced change.",
+          "shows": "Whether credentials expire within the allowable maximum rotation age."
+        },
+        "history_count": {
+          "meaning": "Number of previous passwords remembered to prohibit reuse.",
+          "shows": "Whether password history depth meets or exceeds required count to prevent password reuse."
+        },
+        "captured_at": {
+          "meaning": "UTC timestamp when the password policy configuration snapshot was captured.",
+          "shows": "Snapshot timestamp within the reporting period."
+        }
+      }
+    },
+    {
+      "evidence_type": "audit_forwarding_configuration",
+      "schema_version": "1.0",
+      "collection_status": "LOOKUP_AVAILABLE",
+      "assessment_modes": ["CONFIGURATION_SNAPSHOT"],
+      "supported_fields": [
+        "record_id",
+        "scope_tags",
+        "destination_id",
+        "protocol",
+        "enabled",
+        "last_delivery_at",
+        "captured_at"
+      ],
+      "source_models": [
+        "pam.SyslogConfig",
+        "audit.UserActivity"
+      ],
+      "caveats": [
+        "Covers NIST AU-4(1), AU-6(4) external audit repository forwarding, SIEM/Syslog transport configuration, and real-time offloading verification."
+      ],
+      "field_meanings": {
+        "destination_id": {
+          "meaning": "Identifier of the centralized logging target (SIEM, Syslog server, or audit repository).",
+          "shows": "Which audit forwarding destination is configured."
+        },
+        "protocol": {
+          "meaning": "Transport protocol utilized for log forwarding (SYSLOG, API, OTHER).",
+          "shows": "Forwarding protocol used to transmit audit records off-host."
+        },
+        "enabled": {
+          "meaning": "Whether audit event forwarding to the centralized repository is actively enabled.",
+          "shows": "True when off-system audit trail delivery is operational and enabled."
+        },
+        "captured_at": {
+          "meaning": "UTC timestamp when the audit forwarding configuration snapshot was captured.",
+          "shows": "Snapshot timestamp within the reporting period."
+        },
+        "last_delivery_at": {
+          "meaning": "UTC timestamp of the most recently verified audit batch delivery.",
+          "shows": "Recent activity verifying audit delivery pipeline health (exists / non-null)."
+        }
+      }
+    },
+    {
+      "evidence_type": "backup_configuration",
+      "schema_version": "1.0",
+      "collection_status": "LOOKUP_AVAILABLE",
+      "assessment_modes": ["CONFIGURATION_SNAPSHOT"],
+      "supported_fields": [
+        "record_id",
+        "scope_tags",
+        "backup_id",
+        "scheduled",
+        "encrypted",
+        "last_backup_at",
+        "last_backup_status",
+        "captured_at"
+      ],
+      "source_models": [
+        "backup.BackupConfiguration",
+        "pam.Configurations"
+      ],
+      "caveats": [
+        "Covers NIST CP-9(8) automated encrypted backup scheduling, backup completion tracking, and contingency data availability."
+      ],
+      "field_meanings": {
+        "backup_id": {
+          "meaning": "Unique identifier of the backup job or policy configuration.",
+          "shows": "Which system or credential backup configuration is being evaluated."
+        },
+        "scheduled": {
+          "meaning": "Whether automated scheduled backups are enabled for system and credential data.",
+          "shows": "True when regular automated backups are scheduled."
+        },
+        "encrypted": {
+          "meaning": "Whether backup archives are cryptographically encrypted at rest.",
+          "shows": "True when backup media is encrypted protecting confidentiality and integrity."
+        },
+        "captured_at": {
+          "meaning": "UTC timestamp when the backup configuration snapshot was captured.",
+          "shows": "Snapshot timestamp within the reporting period."
+        },
+        "last_backup_at": {
+          "meaning": "UTC timestamp when the most recent backup execution occurred.",
+          "shows": "Recency of backup execution within maximum allowed recovery point intervals."
+        },
+        "last_backup_status": {
+          "meaning": "Outcome status of the most recent backup execution (SUCCESS, FAILED).",
+          "shows": "SUCCESS when backup completed without error; FAILED otherwise."
         }
       }
     }

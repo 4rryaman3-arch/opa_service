@@ -652,6 +652,49 @@ obligation a test on it can evidence. The rule generator reasons from these mean
 them OPM uses its framework-neutral defaults (`regintel/data/field_meanings.json`, one entry per field). Meanings
 are part of the declaration digest only when given.
 
+### 5.5 Collector capabilities, lookup fields, and new evidence types (2026-11-20)
+
+`EvidenceSupport` accepts `lookup_fields[]`: fields that exist in the PAM database/model for this evidence type but are not yet sent in evaluation payloads.
+
+#### Section A: Field additions to existing evidence types
+
+The following fields exist in PAM models and are declared in `lookup_fields` until Django includes them in evaluation collector batches:
+1. `privileged_access_request`: `approvals_required`, `approvals_received`, `credential_reset_after_use`
+2. `privileged_session`: `credential_reset_after_use`
+3. `privileged_account`: `owner_id`
+4. `credential_rotation`: `captured_at`
+
+#### Section B: New evidence types (declared as `LOOKUP_AVAILABLE`)
+
+The required fields must always be present. `record_id` and `scope_tags` work as on every other type.
+
+| Evidence type | Mode | Required fields | Optional fields | Unlocks |
+|---|---|---|---|---|
+| `endpoint_elevation` | `EVENT_HISTORY` | `elevation_id`, `user_id`, `device_id`, `requested_at`, `approval_status` (`APPROVED` / `AUTO_APPROVED` / `PENDING` / `DENIED`) | `application_id`, `approver_id`, `approved_at`, `elevation_expires_at`, `revoked_at` | AC-6(10), CM-11 |
+| `local_admin_membership` | `CONFIGURATION_SNAPSHOT` | `device_id`, `account_id`, `approved_member`, `captured_at` | *none* | AC-6(5) |
+| `application_control_policy` | `CONFIGURATION_SNAPSHOT` | `policy_id`, `mode` (`ALLOWLIST` / `BLOCKLIST` / `MONITOR`), `enforced`, `captured_at` | *none* | CM-7(4), CM-7(5) |
+| `password_policy_configuration` | `CONFIGURATION_SNAPSHOT` | `policy_id`, `applies_to_privileged`, `min_length`, `complexity_required`, `enforced_on_reset`, `captured_at` | `rotation_period_days`, `history_count` | IA-5(1) |
+| `audit_forwarding_configuration` | `CONFIGURATION_SNAPSHOT` | `destination_id`, `protocol` (`SYSLOG` / `API` / `OTHER`), `enabled`, `captured_at` | `last_delivery_at` | AU-4(1) (rule already built and waiting), AU-6(4) |
+| `backup_configuration` | `CONFIGURATION_SNAPSHOT` | `backup_id`, `scheduled`, `encrypted`, `captured_at` | `last_backup_at`, `last_backup_status` (`SUCCESS` / `FAILED`) | CP-9(8) |
+
+#### Section C: Credential rotation timestamp anchor (`captured_at`)
+
+`credential_rotation` previously had no timestamp that was guaranteed non-null (`last_rotated_at` is null when an account credential has never been rotated). Without a non-null timestamp, generated rules could not establish a population reporting period anchor, blocking ~14 IA-5 requirements. Adding required snapshot time `captured_at` to OPM's `CredentialRotationRecord` and `CUSTOM_RULE_FIELDS` unblocks automatic rule generation for these requirements.
+
+#### Updating capabilities as Django ships each field
+
+In `pam_capability_inventory.json`, or the `PUT` to `/api/v1/catalog/admin/collector-capabilities`:
+- **Section A field**: move it from that type's `lookup_fields` to `supported_fields`.
+- **Section B type**: change `collection_status` from `LOOKUP_AVAILABLE` to `COLLECTED`.
+
+The next catalog job then activates any rule already built and waiting on that field or type (AU-4(1) is the first). Do not declare a field before Django sends it: rules on it would go live and report "insufficient evidence".
+
+**Shipping priority (most useful first)**:
+1. `approvals_required` / `approvals_received` (`privileged_access_request`)
+2. `credential_reset_after_use` (`privileged_session`, `privileged_access_request`)
+3. `owner_id` (`privileged_account`)
+4. `captured_at` (`credential_rotation`)
+
 **Gates, in order** (the first failing one is the outcome):
 1. Forbidden content anywhere in the output: code (Rego/Python), URLs, file paths, templates, credential material,
    claims of full coverage → `RULE_SPEC_INVALID`.
