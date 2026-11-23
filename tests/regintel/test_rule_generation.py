@@ -798,3 +798,31 @@ def test_vector_db_interprets_and_drives_collector_capabilities(tmp_path):
         assert len(handshake) == 1
         assert handshake[0]["evidence_type"] == "password_policy_configuration"
         assert "min_length" in handshake[0]["supported_fields"]
+
+
+def test_vector_db_gates_live_generation(gen, tmp_path, monkeypatch):
+    """A configured vector.db must be valid, and a rule whose evidence it does not list as collected is not activated."""
+    from regintel import pam_vector_db as pv
+    from .test_pam_vector_db import fixture_db
+    env, _ids, run, _submit, _model, _digest, _store = gen
+    (tmp_path / "v").mkdir()
+    monkeypatch.setenv(pv.ENV_PATH, str(fixture_db(tmp_path / "v")))  # lists password_policy_configuration only
+    result = run("vector-1")
+    decisions = result["rule_generation_decisions"]
+    assert not any(d["outcome"] == gr.GENERATED_RULE_ACTIVATED for d in decisions)
+    assert any("vector.db does not list" in (d.get("message") or "") for d in decisions)
+    monkeypatch.setenv(pv.ENV_PATH, str(tmp_path / "missing.db"))
+    with pytest.raises(gr.CatalogError) as e:
+        gr.generate(env.db, None, None, [], scope=SCOPE_A, tenant="acme", actor="x", job_id=None, publish=False,
+                    pinned_digest=None, bundle_dir=None, store_path=None)
+    assert e.value.code == "PAM_VECTOR_DB_INVALID"
+
+
+def test_vector_db_null_fields_add_cases_only_for_unused_fields():
+    spec = gr.RuleSpec.model_validate(_spec(1, **IDLE))
+    cat = gr.CUSTOM_RULE_FIELDS[spec.evidence_type]
+    used = gr._fields(spec)
+    base = gr.build_cases(spec, {"max_idle": 15})
+    more = gr.build_cases(spec, {"max_idle": 15}, {f: "app.Model." + f for f in cat})
+    assert [c for c in more if "pam_source" not in c] == base
+    assert all(c["name"].removeprefix("pam_stored_null_") not in used for c in more if "pam_source" in c)

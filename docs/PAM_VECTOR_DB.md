@@ -63,3 +63,16 @@ with PamVectorDatabase("vector.db") as database:
     matching_documents = database.search("session recording")
     vectors = generate_test_vectors(database)
 ```
+
+## Use by live rule generation
+
+The catalog worker reads the database named by `OPM_REGINTEL_VECTOR_DB` (`scripts/run_native.py` sets it to
+`data/vector.db` when that file exists). For each generation job:
+
+1. the database is validated and its schema tests run first; a missing, invalid or failing database stops generation
+   with `PAM_VECTOR_DB_INVALID`;
+2. a generated rule is activated only if every field it uses is listed as collected (otherwise `COLLECTOR_MISSING`);
+3. rules get `pam_stored_null_*` cases for unused fields whose same-named source-model field may be empty; and
+4. the job result records the database digest. A new digest makes the model propose again for uncovered requirements.
+
+Nothing from `vector.db` is added to a model prompt. Vetted (non-generated) rules are not affected.

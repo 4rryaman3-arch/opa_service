@@ -46,7 +46,7 @@ from app.models.api import Evidence, ReportingPeriod
 from app.models.custom_rules import CustomFrameworkMapping, CustomRuleDefinition
 from app.models.evidence import CUSTOM_RULE_FIELDS, EVIDENCE_SCHEMA_VERSIONS
 
-from . import catalog, control_hub, mapping_recipes as mr, policy_contexts as pctx, policy_controls as pc
+from . import catalog, control_hub, mapping_recipes as mr, pam_vector_db, policy_contexts as pctx, policy_controls as pc
 from .db import CatalogDb, CatalogError, canonical, digest_of, now_iso
 from .llm import LlmError
 
@@ -834,7 +834,8 @@ def _record(spec: RuleSpec, values: dict[str, Any], n: int, *, passing: bool) ->
                     f"{spec.evidence_type} evidence schema")
 
 
-def build_cases(spec: RuleSpec, values: dict[str, Any]) -> list[dict[str, Any]]:
+def build_cases(spec: RuleSpec, values: dict[str, Any], stored_null: dict[str, str] | None = None
+                ) -> list[dict[str, Any]]:
     """Deterministic validation vectors from the evidence schema and the condition tree (never from the model)."""
     cat = CUSTOM_RULE_FIELDS[spec.evidence_type]
     good, bad = _record(spec, values, 1, passing=True), _record(spec, values, 2, passing=False)
@@ -889,6 +890,11 @@ def build_cases(spec: RuleSpec, values: dict[str, Any]) -> list[dict[str, Any]]:
             boundary, holds = v, pred.operator in ("less_than_or_equal", "greater_than_or_equal")
         derived(f"boundary_{pred.field}_{pred.operator}", {**good, pred.field: boundary}, "PASS" if holds else "FAIL",
                 expected_violation_subjects=[] if holds else ["subject-1"])
+    # the PAM may store these fields empty (vector.db); a field the rule does not use must not change the outcome
+    used = _fields(spec) | {"record_id", "scope_tags", spec.subject_field, spec.population.period_field}
+    for f, source in sorted((stored_null or {}).items()):
+        if f in cat and f not in used and cat[f]["nullable"]:
+            derived(f"pam_stored_null_{f}", {**good, f: None}, "PASS", pam_source=source)
     return cases
 
 
@@ -2062,12 +2068,18 @@ def generate(db: CatalogDb, engine: Any, llm: Any, decisions: list[dict[str, Any
 
     me = engine_actor(actor)
     cap = pctx.capabilities(db, scope, tenant)
+    try:
+        vector = pam_vector_db.load_for_generation()
+    except pam_vector_db.PamVectorDbError as exc:
+        raise CatalogError("PAM_VECTOR_DB_INVALID", f"rule generation stopped: {exc}") from exc
     info = getattr(llm, "info", None)
     model, model_digest = (getattr(info, "model", None), getattr(info, "version", None)) if info else (None, None)
     out: dict[str, Any] = {"decisions": [], "mapping_ids": [], "compiler_version": COMPILER_VERSION,
                            "prompt_version": PROMPT_VERSION, "policy_version": POLICY_VERSION, "model": model,
                            "model_digest": model_digest, "collector_capability_digest": cap.get("digest"),
-                           "publish": publish, "llm_errors": 0}
+                           "publish": publish, "llm_errors": 0,
+                           "pam_vector_db": {"digest": vector.digest, "schema_tests_passed": vector.schema_tests}
+                           if vector else None}
     todo = [d for d in decisions if d.get("gap_code") in TRIGGER_CODES and d.get("outcome") not in
             ("PUBLISHABLE", "EXISTING")]
     settings = in_force_settings(db, scope, tenant)
@@ -2107,6 +2119,7 @@ def generate(db: CatalogDb, engine: Any, llm: Any, decisions: list[dict[str, Any
                                   "ref": {k: ref.get(k) for k in ("canonical_id", "clause")},
                                   "collector": catalog_digest(cap), "prompt": PROMPT_VERSION, "spec": SPEC_VERSION,
                                   "screen": SCREEN_VERSION,
+                                  **({"vector_db": vector.digest} if vector else {}),
                                   "model": [model, model_digest]})
         record: dict[str, Any] = {"requirement_id": rid, "trigger_gap_code": d.get("gap_code")}
         raw, proposal_json, result, _called, analysis = _proposal_for(
@@ -2187,7 +2200,8 @@ def generate(db: CatalogDb, engine: Any, llm: Any, decisions: list[dict[str, Any
             tick(n - 1, "test", current)
             stage_counts["test_generated_rules"] += 1
             try:
-                cases = build_cases(spec, compiled["values"])
+                cases = build_cases(spec, compiled["values"],
+                                    vector.stored_null.get(spec.evidence_type) if vector else None)
             except CaseError as exc:
                 raise Gap("RULE_SPEC_INVALID", f"deterministic validation cases cannot be built: {exc}") from exc
             results = run_cases(compiled["definition"], compiled["compiled"], cases, bundle_dir=bundle_dir)
@@ -2224,6 +2238,12 @@ def generate(db: CatalogDb, engine: Any, llm: Any, decisions: list[dict[str, Any
                 if pinned_digest is None or live_digest != pinned_digest or cap.get("digest") != pinned_digest:
                     raise Gap("EVIDENCE_SCHEMA_INCOMPATIBLE", "the collector declaration changed after the job was "
                               "submitted (stale collector_capability_digest); activation refused")
+                absent = vector.not_collected(spec.evidence_type, _fields(spec)) if vector else []
+                if absent:
+                    raise Gap("COLLECTOR_MISSING", f"vector.db does not list {absent} as collected for "
+                              f"{spec.evidence_type}; activation refused", fields=absent)
+                if vector:
+                    checks.append("pam_vector_db_collected")
                 tick(n - 1, "activate", current)
                 stage_counts["publish_generated_rules"] += 1
                 result = _activate_and_map(db, engine, row=row, compiled=compiled, spec=spec, req=req, scope=scope,

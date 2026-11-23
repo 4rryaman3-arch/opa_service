@@ -120,11 +120,16 @@ def main() -> int:
           "OPM_MAX_BODY_SIZE": cfg.get("OPM_MAX_BODY_SIZE") or "5MB",
           "OPM_CATALOG_ADMIN_UPSTREAM": f"127.0.0.1:{args.catalog_admin_port}"}),
     ]
+    vector_db = ROOT / "data" / "vector.db"
+    vector_env = {} if cfg.get("OPM_REGINTEL_VECTOR_DB") or not vector_db.is_file() else {
+        "OPM_REGINTEL_VECTOR_DB": str(vector_db)}
     if args.with_catalog_admin:
+        print("PAM vector.db for rule generation: "
+              f"{cfg.get('OPM_REGINTEL_VECTOR_DB') or (vector_db if vector_env else 'not used (no data/vector.db)')}", flush=True)
         specs.insert(-1, ("catalog-admin", [sys.executable, "-m", "uvicorn", "regintel.admin_api:app_factory",
             "--factory", "--host", "127.0.0.1", "--port", str(args.catalog_admin_port),
             "--no-server-header", "--no-access-log"],
-            {**passthrough, **llm_secret, "OPM_CATALOG_DB_PATH": str(ROOT / "data/regintel/catalog.db"),
+            {**passthrough, **vector_env, **llm_secret, "OPM_CATALOG_DB_PATH": str(ROOT / "data/regintel/catalog.db"),
              "OPM_POLICY_BUNDLE_DIR": str(ROOT / bundle_rel),
              # the evaluator's tenant rule store: activated generated rules (PAM-GEN-*) are written here
              "OPM_DB_PATH": str(ROOT / "data" / "opm.db"),

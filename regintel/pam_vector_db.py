@@ -8,7 +8,9 @@ from __future__ import annotations
 
 import hashlib
 import json
+import os
 import sqlite3
+from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Self
@@ -405,3 +407,46 @@ def validate_test_vectors(vectors: dict[str, Any]) -> dict[str, Any]:
                                  "expected": case["expected"], "actual": actual})
     return {"passed": passed, "failed": failed, "failures": failures,
             "validated_at": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")}
+
+
+# ---------------------------------------------------------------- use by rule generation
+
+ENV_PATH = "OPM_REGINTEL_VECTOR_DB"
+
+
+@dataclass(frozen=True)
+class GenerationSnapshot:
+    """What rule generation uses of one validated vector.db. Local only: nothing here enters a model prompt."""
+
+    digest: str
+    schema_tests: int
+    collected: dict[str, frozenset[str]]
+    stored_null: dict[str, dict[str, str]] = field(default_factory=dict)  # evidence type -> field -> PAM model field
+
+    def not_collected(self, evidence_type: str, fields: set[str]) -> list[str]:
+        """Fields (or the whole type) a rule needs that vector.db does not list as collected."""
+        if evidence_type not in self.collected:
+            return [evidence_type]
+        return sorted(fields - self.collected[evidence_type])
+
+
+def load_for_generation() -> GenerationSnapshot | None:
+    """Validated snapshot of the configured vector.db, or None when none is configured. A configured database that is
+    missing, invalid or fails its own schema tests raises PamVectorDbError, so generation stops."""
+    path = os.environ.get(ENV_PATH)
+    if not path:
+        return None
+    with PamVectorDatabase(path) as database:
+        vectors = generate_test_vectors(database)
+        result = validate_test_vectors(vectors)
+        if result["failed"] or not result["passed"]:
+            raise PamVectorDbError(f"vector.db schema tests failed: {result['failures'][:5]}")
+        collected, stored_null = {}, {}
+        for c in vectors["capabilities"]:
+            etype = c["evidence_type"]
+            if c["collection_status"] == "COLLECTED":
+                collected[etype] = frozenset(c["supported_fields"]) - frozenset(c["lookup_fields"])
+            # only a source-model field of exactly the same name counts; anything looser would be a guess
+            stored_null[etype] = {f["name"]: f"{m['resolved_label']}.{f['name']}" for m in c["source_models"]
+                                  if m["resolution"] == "EXACT" for f in m["fields"] if f["null"]}
+        return GenerationSnapshot(database.digest, result["passed"], collected, stored_null)
