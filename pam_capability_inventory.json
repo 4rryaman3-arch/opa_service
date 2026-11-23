@@ -17,11 +17,11 @@
         "account_id",
         "privileged",
         "last_rotated_at",
-        "last_rotation_status"
+        "last_rotation_status",
+        "captured_at",
+        "policy_compliant"
       ],
-      "lookup_fields": [
-        "captured_at"
-      ],
+      "lookup_fields": [],
       "source_models": [
         "accountmanagement.Accounts",
         "accountmanagement.PasswordHistory",
@@ -56,6 +56,10 @@
         "captured_at": {
           "meaning": "UTC timestamp when the credential rotation snapshot was captured.",
           "shows": "Snapshot timestamp used as reporting period anchor when last_rotated_at is null."
+        },
+        "policy_compliant": {
+          "meaning": "Whether the credential conforms to the organization's active password policy configuration.",
+          "shows": "Compliance with complexity, length, and rotation requirements."
         }
       }
     },
@@ -130,7 +134,8 @@
         "ended_at",
         "recording_required",
         "recording_status",
-        "recording_reference"
+        "recording_reference",
+        "shadowed"
       ],
       "lookup_fields": [
         "credential_reset_after_use"
@@ -182,6 +187,10 @@
         "credential_reset_after_use": {
           "meaning": "Whether the account credential was automatically reset or invalidated immediately following session termination.",
           "shows": "One-time-use credential invalidation protecting against post-session replay."
+        },
+        "shadowed": {
+          "meaning": "Whether the privileged session was joined, observed, or shadowed in real time by an authorized administrator.",
+          "shows": "Real-time supervisory session shadowing or dual-control monitoring."
         }
       }
     },
@@ -978,7 +987,7 @@
     {
       "evidence_type": "password_policy_configuration",
       "schema_version": "1.0",
-      "collection_status": "LOOKUP_AVAILABLE",
+      "collection_status": "COLLECTED",
       "assessment_modes": ["CONFIGURATION_SNAPSHOT"],
       "supported_fields": [
         "record_id",
@@ -1037,7 +1046,7 @@
     {
       "evidence_type": "audit_forwarding_configuration",
       "schema_version": "1.0",
-      "collection_status": "LOOKUP_AVAILABLE",
+      "collection_status": "COLLECTED",
       "assessment_modes": ["CONFIGURATION_SNAPSHOT"],
       "supported_fields": [
         "record_id",

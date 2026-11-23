@@ -33,6 +33,7 @@ class CredentialRotationRecord(BaseRecord):
     last_rotated_at: UtcDatetime | None
     last_rotation_status: Literal["SUCCESS", "FAILED"] | None = None
     captured_at: UtcDatetime | None = None
+    policy_compliant: StrictBool | None = None
 
 
 class PrivilegedSessionRecord(BaseRecord):
@@ -45,6 +46,7 @@ class PrivilegedSessionRecord(BaseRecord):
     recording_status: Literal["AVAILABLE", "PARTIAL", "MISSING", "FAILED", "PROCESSING"]
     recording_reference: Identifier | None = None
     credential_reset_after_use: StrictBool | None = None
+    shadowed: StrictBool | None = None
 
     @model_validator(mode="after")
     def _check(self):
@@ -416,6 +418,7 @@ CUSTOM_RULE_FIELDS: dict[str, dict[str, dict]] = {
         "last_rotated_at": _f("datetime", True),
         "last_rotation_status": _f("enum", True, ("SUCCESS", "FAILED")),
         "captured_at": _f("datetime", False),
+        "policy_compliant": _f("boolean", True),
     },
     "privileged_session": {
         **_COMMON,
@@ -428,6 +431,7 @@ CUSTOM_RULE_FIELDS: dict[str, dict[str, dict]] = {
         "recording_status": _f("enum", False, ("AVAILABLE", "PARTIAL", "MISSING", "FAILED", "PROCESSING")),
         "recording_reference": _f("string", True),
         "credential_reset_after_use": _f("boolean", True),
+        "shadowed": _f("boolean", True),
     },
     "privileged_access_request": {
         **_COMMON,

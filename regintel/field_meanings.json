@@ -20,6 +20,10 @@
     "captured_at": {
       "meaning": "UTC timestamp when the credential rotation snapshot was captured.",
       "shows": "Snapshot timestamp used as reporting period anchor when last_rotated_at is null (NIST IA-5, IA-5(1))."
+    },
+    "policy_compliant": {
+      "meaning": "Whether the credential conforms to the organization's active password policy configuration.",
+      "shows": "Compliance with complexity, length, and rotation requirements (NIST IA-5 c, IA-5 h)."
     }
   },
   "privileged_account": {
@@ -84,6 +88,10 @@
     "credential_reset_after_use": {
       "meaning": "Whether the account credential was automatically reset or invalidated immediately following session termination.",
       "shows": "One-time-use credential invalidation protecting against post-session replay (NIST IA-5(1), SC-12)."
+    },
+    "shadowed": {
+      "meaning": "Whether the privileged session was joined, observed, or shadowed in real time by an authorized administrator.",
+      "shows": "Real-time supervisory session shadowing or dual-control monitoring (NIST AU-14(3))."
     }
   },
   "privileged_access_request": {
