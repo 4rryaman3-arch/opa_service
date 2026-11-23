@@ -177,7 +177,7 @@
       "addresses_gap_rules": [
         "PAM-APPROVAL-001"
       ],
-      "definition_digest": "sha256:0ff23a56c28820186bf79cc8ee44b88e57d4e694232caadb0f099edf21a4007f",
+      "definition_digest": "sha256:259771137e40d7ca4d432f58fe7822730fa5410da542ee103a7d515fe01a5a5c",
       "assessability": {
         "end_to_end_assessable": null,
         "reason": "Send the organization scope header and tenant_id to see collector support for this organization.",
@@ -546,7 +546,7 @@
       "addresses_gap_rules": [
         "PAM-ROTATION-001"
       ],
-      "definition_digest": "sha256:018bc0b8f471f4cec90c10c2b7af4dceb1d238ce2bffdd5a0d3005eb421ac575",
+      "definition_digest": "sha256:2310fe9cbcd3267bb8a564e5bd3b8c8284bfb8875bf9ced12790e8adf27ede71",
       "assessability": {
         "end_to_end_assessable": null,
         "reason": "Send the organization scope header and tenant_id to see collector support for this organization.",
@@ -613,7 +613,7 @@
       "addresses_gap_rules": [
         "PAM-DORMANT-001"
       ],
-      "definition_digest": "sha256:9962e362c2ee756ea9f635e238778aaa744e70f9e1be5ae67f297f7620b70f13",
+      "definition_digest": "sha256:06e8dd385cd98d8c2bf2dedb82bcb4a202be21c425b799de25a73dce6c3f2ef0",
       "assessability": {
         "end_to_end_assessable": null,
         "reason": "Send the organization scope header and tenant_id to see collector support for this organization.",
@@ -1188,7 +1188,7 @@
       "addresses_gap_rules": [
         "PAM-SESSDUR-001"
       ],
-      "definition_digest": "sha256:e0b9eadc7ce53de9ae66419b58d3fe14bdd77e24fb2d42306925faf306398844",
+      "definition_digest": "sha256:c546302c000e9bbb63990a0461b9363f45ba8dbc084cad319efdc40b41538aa1",
       "assessability": {
         "end_to_end_assessable": null,
         "reason": "Send the organization scope header and tenant_id to see collector support for this organization.",
@@ -1324,7 +1324,7 @@
       "addresses_gap_rules": [
         "PAM-SESSREC-001"
       ],
-      "definition_digest": "sha256:4f276d7716deae5b5cb966bd4ad92654ee3ea93d12d3d8c60fc56a61d94222ee",
+      "definition_digest": "sha256:b493b4e8933911aec838a8668b778b30267929793928ee47ead16a6cdcd1ba50",
       "assessability": {
         "end_to_end_assessable": null,
         "reason": "Send the organization scope header and tenant_id to see collector support for this organization.",

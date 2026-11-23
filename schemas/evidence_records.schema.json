@@ -14,7 +14,13 @@
     "audit_event": "1.0",
     "mfa_configuration": "1.0",
     "privileged_access_authentication": "1.0",
-    "session_policy_configuration": "1.0"
+    "session_policy_configuration": "1.0",
+    "endpoint_elevation": "1.0",
+    "local_admin_membership": "1.0",
+    "application_control_policy": "1.0",
+    "password_policy_configuration": "1.0",
+    "audit_forwarding_configuration": "1.0",
+    "backup_configuration": "1.0"
   },
   "evidence_types": {
     "credential_rotation": {
@@ -70,6 +76,43 @@
           ],
           "default": null,
           "title": "Last Rotation Status"
+        },
+        "captured_at": {
+          "anyOf": [
+            {
+              "format": "date-time",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Captured At"
+        },
+        "breached": {
+          "anyOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Breached"
+        },
+        "policy_compliant": {
+          "anyOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Policy Compliant"
         }
       },
       "required": [
@@ -158,6 +201,54 @@
           ],
           "default": null,
           "title": "Recording Reference"
+        },
+        "credential_reset_after_use": {
+          "anyOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Credential Reset After Use"
+        },
+        "shadowed": {
+          "anyOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Shadowed"
+        },
+        "terminated_by_admin": {
+          "anyOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Terminated By Admin"
+        },
+        "credential_disclosed": {
+          "anyOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Credential Disclosed"
         }
       },
       "required": [
@@ -261,6 +352,109 @@
           ],
           "default": null,
           "title": "Approver Id"
+        },
+        "ticket_reference": {
+          "anyOf": [
+            {
+              "pattern": "^[A-Za-z0-9][A-Za-z0-9._:@/-]{0,127}$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Ticket Reference"
+        },
+        "justification_provided": {
+          "anyOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Justification Provided"
+        },
+        "auto_approved": {
+          "anyOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Auto Approved"
+        },
+        "approvals_required": {
+          "anyOf": [
+            {
+              "maximum": 10000000000,
+              "minimum": 0,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Approvals Required"
+        },
+        "approvals_received": {
+          "anyOf": [
+            {
+              "maximum": 10000000000,
+              "minimum": 0,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Approvals Received"
+        },
+        "access_expires_at": {
+          "anyOf": [
+            {
+              "format": "date-time",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Access Expires At"
+        },
+        "revoked_at": {
+          "anyOf": [
+            {
+              "format": "date-time",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Revoked At"
+        },
+        "credential_reset_after_use": {
+          "anyOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Credential Reset After Use"
         }
       },
       "required": [
@@ -321,6 +515,19 @@
             }
           ],
           "title": "Last Used At"
+        },
+        "owner_id": {
+          "anyOf": [
+            {
+              "pattern": "^[A-Za-z0-9][A-Za-z0-9._:@/-]{0,127}$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Owner Id"
         }
       },
       "required": [
@@ -1161,6 +1368,459 @@
         "captured_at"
       ],
       "title": "SessionPolicyConfigurationRecord",
+      "type": "object"
+    },
+    "endpoint_elevation": {
+      "additionalProperties": false,
+      "description": "Event history: temporary privilege elevation on managed endpoints (AC-6(10), CM-11).",
+      "properties": {
+        "record_id": {
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9._:@/-]{0,127}$",
+          "title": "Record Id",
+          "type": "string"
+        },
+        "scope_tags": {
+          "items": {
+            "pattern": "^[a-z0-9][a-z0-9._:-]{0,63}$",
+            "type": "string"
+          },
+          "maxItems": 20,
+          "title": "Scope Tags",
+          "type": "array"
+        },
+        "elevation_id": {
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9._:@/-]{0,127}$",
+          "title": "Elevation Id",
+          "type": "string"
+        },
+        "user_id": {
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9._:@/-]{0,127}$",
+          "title": "User Id",
+          "type": "string"
+        },
+        "device_id": {
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9._:@/-]{0,127}$",
+          "title": "Device Id",
+          "type": "string"
+        },
+        "requested_at": {
+          "format": "date-time",
+          "title": "Requested At",
+          "type": "string"
+        },
+        "approval_status": {
+          "enum": [
+            "APPROVED",
+            "AUTO_APPROVED",
+            "PENDING",
+            "DENIED"
+          ],
+          "title": "Approval Status",
+          "type": "string"
+        },
+        "application_id": {
+          "anyOf": [
+            {
+              "pattern": "^[A-Za-z0-9][A-Za-z0-9._:@/-]{0,127}$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Application Id"
+        },
+        "approver_id": {
+          "anyOf": [
+            {
+              "pattern": "^[A-Za-z0-9][A-Za-z0-9._:@/-]{0,127}$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Approver Id"
+        },
+        "approved_at": {
+          "anyOf": [
+            {
+              "format": "date-time",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Approved At"
+        },
+        "elevation_expires_at": {
+          "anyOf": [
+            {
+              "format": "date-time",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Elevation Expires At"
+        },
+        "revoked_at": {
+          "anyOf": [
+            {
+              "format": "date-time",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Revoked At"
+        }
+      },
+      "required": [
+        "record_id",
+        "elevation_id",
+        "user_id",
+        "device_id",
+        "requested_at",
+        "approval_status"
+      ],
+      "title": "EndpointElevationRecord",
+      "type": "object"
+    },
+    "local_admin_membership": {
+      "additionalProperties": false,
+      "description": "Configuration snapshot: membership in local administrator / sudoers groups on endpoints (AC-6(5)).",
+      "properties": {
+        "record_id": {
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9._:@/-]{0,127}$",
+          "title": "Record Id",
+          "type": "string"
+        },
+        "scope_tags": {
+          "items": {
+            "pattern": "^[a-z0-9][a-z0-9._:-]{0,63}$",
+            "type": "string"
+          },
+          "maxItems": 20,
+          "title": "Scope Tags",
+          "type": "array"
+        },
+        "device_id": {
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9._:@/-]{0,127}$",
+          "title": "Device Id",
+          "type": "string"
+        },
+        "account_id": {
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9._:@/-]{0,127}$",
+          "title": "Account Id",
+          "type": "string"
+        },
+        "approved_member": {
+          "title": "Approved Member",
+          "type": "boolean"
+        },
+        "captured_at": {
+          "format": "date-time",
+          "title": "Captured At",
+          "type": "string"
+        }
+      },
+      "required": [
+        "record_id",
+        "device_id",
+        "account_id",
+        "approved_member",
+        "captured_at"
+      ],
+      "title": "LocalAdminMembershipRecord",
+      "type": "object"
+    },
+    "application_control_policy": {
+      "additionalProperties": false,
+      "description": "Configuration snapshot: allowlist / blocklist application control policy (CM-7(4), CM-7(5)).",
+      "properties": {
+        "record_id": {
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9._:@/-]{0,127}$",
+          "title": "Record Id",
+          "type": "string"
+        },
+        "scope_tags": {
+          "items": {
+            "pattern": "^[a-z0-9][a-z0-9._:-]{0,63}$",
+            "type": "string"
+          },
+          "maxItems": 20,
+          "title": "Scope Tags",
+          "type": "array"
+        },
+        "policy_id": {
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9._:@/-]{0,127}$",
+          "title": "Policy Id",
+          "type": "string"
+        },
+        "mode": {
+          "enum": [
+            "ALLOWLIST",
+            "BLOCKLIST",
+            "MONITOR"
+          ],
+          "title": "Mode",
+          "type": "string"
+        },
+        "enforced": {
+          "title": "Enforced",
+          "type": "boolean"
+        },
+        "captured_at": {
+          "format": "date-time",
+          "title": "Captured At",
+          "type": "string"
+        }
+      },
+      "required": [
+        "record_id",
+        "policy_id",
+        "mode",
+        "enforced",
+        "captured_at"
+      ],
+      "title": "ApplicationControlPolicyRecord",
+      "type": "object"
+    },
+    "password_policy_configuration": {
+      "additionalProperties": false,
+      "description": "Configuration snapshot: password complexity, length, and history configuration (IA-5(1)).",
+      "properties": {
+        "record_id": {
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9._:@/-]{0,127}$",
+          "title": "Record Id",
+          "type": "string"
+        },
+        "scope_tags": {
+          "items": {
+            "pattern": "^[a-z0-9][a-z0-9._:-]{0,63}$",
+            "type": "string"
+          },
+          "maxItems": 20,
+          "title": "Scope Tags",
+          "type": "array"
+        },
+        "policy_id": {
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9._:@/-]{0,127}$",
+          "title": "Policy Id",
+          "type": "string"
+        },
+        "applies_to_privileged": {
+          "title": "Applies To Privileged",
+          "type": "boolean"
+        },
+        "min_length": {
+          "maximum": 1024,
+          "minimum": 0,
+          "title": "Min Length",
+          "type": "integer"
+        },
+        "complexity_required": {
+          "title": "Complexity Required",
+          "type": "boolean"
+        },
+        "enforced_on_reset": {
+          "title": "Enforced On Reset",
+          "type": "boolean"
+        },
+        "captured_at": {
+          "format": "date-time",
+          "title": "Captured At",
+          "type": "string"
+        },
+        "rotation_period_days": {
+          "anyOf": [
+            {
+              "maximum": 10000000000,
+              "minimum": 0,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Rotation Period Days"
+        },
+        "history_count": {
+          "anyOf": [
+            {
+              "maximum": 10000000000,
+              "minimum": 0,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "History Count"
+        }
+      },
+      "required": [
+        "record_id",
+        "policy_id",
+        "applies_to_privileged",
+        "min_length",
+        "complexity_required",
+        "enforced_on_reset",
+        "captured_at"
+      ],
+      "title": "PasswordPolicyConfigurationRecord",
+      "type": "object"
+    },
+    "audit_forwarding_configuration": {
+      "additionalProperties": false,
+      "description": "Configuration snapshot: real-time audit log export / SIEM forwarding destination (AU-4(1), AU-6(4)).",
+      "properties": {
+        "record_id": {
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9._:@/-]{0,127}$",
+          "title": "Record Id",
+          "type": "string"
+        },
+        "scope_tags": {
+          "items": {
+            "pattern": "^[a-z0-9][a-z0-9._:-]{0,63}$",
+            "type": "string"
+          },
+          "maxItems": 20,
+          "title": "Scope Tags",
+          "type": "array"
+        },
+        "destination_id": {
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9._:@/-]{0,127}$",
+          "title": "Destination Id",
+          "type": "string"
+        },
+        "protocol": {
+          "enum": [
+            "SYSLOG",
+            "API",
+            "OTHER"
+          ],
+          "title": "Protocol",
+          "type": "string"
+        },
+        "enabled": {
+          "title": "Enabled",
+          "type": "boolean"
+        },
+        "captured_at": {
+          "format": "date-time",
+          "title": "Captured At",
+          "type": "string"
+        },
+        "last_delivery_at": {
+          "anyOf": [
+            {
+              "format": "date-time",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Last Delivery At"
+        }
+      },
+      "required": [
+        "record_id",
+        "destination_id",
+        "protocol",
+        "enabled",
+        "captured_at"
+      ],
+      "title": "AuditForwardingConfigurationRecord",
+      "type": "object"
+    },
+    "backup_configuration": {
+      "additionalProperties": false,
+      "description": "Configuration snapshot: scheduled and encrypted backup configuration (CP-9(8)).",
+      "properties": {
+        "record_id": {
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9._:@/-]{0,127}$",
+          "title": "Record Id",
+          "type": "string"
+        },
+        "scope_tags": {
+          "items": {
+            "pattern": "^[a-z0-9][a-z0-9._:-]{0,63}$",
+            "type": "string"
+          },
+          "maxItems": 20,
+          "title": "Scope Tags",
+          "type": "array"
+        },
+        "backup_id": {
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9._:@/-]{0,127}$",
+          "title": "Backup Id",
+          "type": "string"
+        },
+        "scheduled": {
+          "title": "Scheduled",
+          "type": "boolean"
+        },
+        "encrypted": {
+          "title": "Encrypted",
+          "type": "boolean"
+        },
+        "captured_at": {
+          "format": "date-time",
+          "title": "Captured At",
+          "type": "string"
+        },
+        "last_backup_at": {
+          "anyOf": [
+            {
+              "format": "date-time",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Last Backup At"
+        },
+        "last_backup_status": {
+          "anyOf": [
+            {
+              "enum": [
+                "SUCCESS",
+                "FAILED"
+              ],
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Last Backup Status"
+        }
+      },
+      "required": [
+        "record_id",
+        "backup_id",
+        "scheduled",
+        "encrypted",
+        "captured_at"
+      ],
+      "title": "BackupConfigurationRecord",
       "type": "object"
     }
   }

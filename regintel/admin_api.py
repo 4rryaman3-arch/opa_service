@@ -632,7 +632,7 @@ def create_admin_app(settings: Settings | None = None, *, start_worker=True):
 
     @app.post(PREFIX+'/uploads',status_code=201)
     async def upload(request: Request, response: Response, framework_id: str = Query(default='',max_length=48),
-                     filename: str = Query(min_length=1,max_length=150,pattern=r'^[A-Za-z0-9][A-Za-z0-9._-]*\.(pdf|html|txt)$'),
+                     filename: str = Query(min_length=1,max_length=150,pattern=r'^[A-Za-z0-9][A-Za-z0-9._-]*\.(pdf|html|txt|json)$'),
                      language: str = Query(default='en',pattern=r'^[a-z]{2,3}(-[A-Za-z0-9]{2,8})?$'),
                      provenance: str = Query(min_length=30,max_length=2000),
                      license_note: str = Query(min_length=3,max_length=300),
@@ -673,6 +673,11 @@ def create_admin_app(settings: Settings | None = None, *, start_worker=True):
         fmt=filename.rsplit('.',1)[1]
         if fmt=='pdf' and not content.startswith(b'%PDF-'):
             raise ServiceError(422,'INVALID_PDF','Uploaded bytes are not a PDF')
+        if fmt=='json':
+            from . import textproc
+            check=textproc.parse_oscal_catalog(bytes(content))
+            if not check.sections:
+                raise ServiceError(422,'INVALID_OSCAL',f'JSON uploads must be OSCAL catalogs: {check.incomplete_reason}')
         digest=hashlib.sha256(content).hexdigest()
         params=digest_of({'filename':filename,'language':language,'provenance':provenance,
                                   'license_note':license_note,'jurisdictions':codes,'framework_id':framework_id})

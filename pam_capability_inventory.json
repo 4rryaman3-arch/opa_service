@@ -10,17 +10,21 @@
       "evidence_type": "credential_rotation",
       "schema_version": "1.0",
       "collection_status": "COLLECTED",
-      "assessment_modes": ["EVENT_HISTORY"],
+      "assessment_modes": [
+        "EVENT_HISTORY"
+      ],
       "supported_fields": [
         "record_id",
         "scope_tags",
         "account_id",
         "privileged",
         "last_rotated_at",
-        "last_rotation_status"
+        "last_rotation_status",
+        "captured_at",
+        "policy_compliant"
       ],
       "lookup_fields": [
-        "captured_at"
+        "breached"
       ],
       "source_models": [
         "accountmanagement.Accounts",
@@ -34,7 +38,8 @@
         "pam.SecurityKeys"
       ],
       "caveats": [
-        "Covers NIST IA-5, IA-5(1), IA-5(2), IA-5(6), IA-5(7), SC-12, SC-13, SC-17, SC-28 credential rotation, password policy enforcement, SSH/PKI key rotation, and AES-256 encrypted credential storage."
+        "Covers NIST IA-5, IA-5(1), IA-5(2), IA-5(6), IA-5(7), SC-12, SC-13, SC-17, SC-28 credential rotation, password policy enforcement, SSH/PKI key rotation, and AES-256 encrypted credential storage.",
+        "lookup_fields: Securden documents these (product documentation, 2026-11-20) but the collector does not send them yet; rules on them are generated and tested but wait. Move a field to supported_fields once the collector sends it."
       ],
       "field_meanings": {
         "account_id": {
@@ -63,7 +68,9 @@
       "evidence_type": "privileged_account",
       "schema_version": "1.0",
       "collection_status": "COLLECTED",
-      "assessment_modes": ["EVENT_HISTORY"],
+      "assessment_modes": [
+        "EVENT_HISTORY"
+      ],
       "supported_fields": [
         "record_id",
         "scope_tags",
@@ -86,7 +93,8 @@
         "usermanagement.ADImportSchedule"
       ],
       "caveats": [
-        "Covers NIST AC-2, AC-2(1), AC-2(2), AC-2(3), AC-6, IA-4, CM-8 privileged account inventory, automated discovery, active/disabled status, and dormant account tracking."
+        "Covers NIST AC-2, AC-2(1), AC-2(2), AC-2(3), AC-6, IA-4, CM-8 privileged account inventory, automated discovery, active/disabled status, and dormant account tracking.",
+        "lookup_fields: Securden documents these (product documentation, 2026-11-20) but the collector does not send them yet; rules on them are generated and tested but wait. Move a field to supported_fields once the collector sends it."
       ],
       "field_meanings": {
         "account_id": {
@@ -119,7 +127,9 @@
       "evidence_type": "privileged_session",
       "schema_version": "1.0",
       "collection_status": "COLLECTED",
-      "assessment_modes": ["EVENT_HISTORY"],
+      "assessment_modes": [
+        "EVENT_HISTORY"
+      ],
       "supported_fields": [
         "record_id",
         "scope_tags",
@@ -130,10 +140,13 @@
         "ended_at",
         "recording_required",
         "recording_status",
-        "recording_reference"
+        "recording_reference",
+        "shadowed"
       ],
       "lookup_fields": [
-        "credential_reset_after_use"
+        "credential_reset_after_use",
+        "terminated_by_admin",
+        "credential_disclosed"
       ],
       "source_models": [
         "audit.AccountActiveRemoteSession",
@@ -144,7 +157,8 @@
         "pam.GatewayServer"
       ],
       "caveats": [
-        "Covers NIST AC-17, AC-17(1), AC-17(2), AC-17(3), AC-17(4), AU-14, SC-7, SC-8 brokered remote sessions, session recording, live shadowing, and session termination."
+        "Covers NIST AC-17, AC-17(1), AC-17(2), AC-17(3), AC-17(4), AU-14, SC-7, SC-8 brokered remote sessions, session recording, live shadowing, and session termination.",
+        "lookup_fields: Securden documents these (product documentation, 2026-11-20) but the collector does not send them yet; rules on them are generated and tested but wait. Move a field to supported_fields once the collector sends it."
       ],
       "field_meanings": {
         "session_id": {
@@ -189,7 +203,9 @@
       "evidence_type": "privileged_access_request",
       "schema_version": "1.0",
       "collection_status": "COLLECTED",
-      "assessment_modes": ["EVENT_HISTORY"],
+      "assessment_modes": [
+        "EVENT_HISTORY"
+      ],
       "supported_fields": [
         "record_id",
         "scope_tags",
@@ -206,7 +222,12 @@
       "lookup_fields": [
         "approvals_required",
         "approvals_received",
-        "credential_reset_after_use"
+        "credential_reset_after_use",
+        "ticket_reference",
+        "justification_provided",
+        "auto_approved",
+        "access_expires_at",
+        "revoked_at"
       ],
       "source_models": [
         "accountmanagement.AccountAdminPrivilegeRequest",
@@ -214,7 +235,8 @@
         "accountmanagement.TicketSystem"
       ],
       "caveats": [
-        "Covers NIST AC-2, AC-2(4), AC-6, AC-6(1), AC-6(2), CM-3, CM-5, MA-4 request-release approval workflows, Just-in-Time privilege elevation, and ITSM ticket-validated access."
+        "Covers NIST AC-2, AC-2(4), AC-6, AC-6(1), AC-6(2), CM-3, CM-5, MA-4 request-release approval workflows, Just-in-Time privilege elevation, and ITSM ticket-validated access.",
+        "lookup_fields: Securden documents these (product documentation, 2026-11-20) but the collector does not send them yet; rules on them are generated and tested but wait. Move a field to supported_fields once the collector sends it."
       ],
       "field_meanings": {
         "access_id": {
@@ -271,7 +293,9 @@
       "evidence_type": "access_authorization",
       "schema_version": "1.0",
       "collection_status": "COLLECTED",
-      "assessment_modes": ["EVENT_HISTORY"],
+      "assessment_modes": [
+        "EVENT_HISTORY"
+      ],
       "supported_fields": [
         "record_id",
         "scope_tags",
@@ -335,7 +359,9 @@
       "evidence_type": "authentication_summary",
       "schema_version": "1.0",
       "collection_status": "COLLECTED",
-      "assessment_modes": ["EVENT_HISTORY"],
+      "assessment_modes": [
+        "EVENT_HISTORY"
+      ],
       "supported_fields": [
         "record_id",
         "scope_tags",
@@ -380,7 +406,9 @@
       "evidence_type": "break_glass_event",
       "schema_version": "1.0",
       "collection_status": "COLLECTED",
-      "assessment_modes": ["EVENT_HISTORY"],
+      "assessment_modes": [
+        "EVENT_HISTORY"
+      ],
       "supported_fields": [
         "record_id",
         "scope_tags",
@@ -445,7 +473,9 @@
       "evidence_type": "policy_exception",
       "schema_version": "1.0",
       "collection_status": "COLLECTED",
-      "assessment_modes": ["EVENT_HISTORY"],
+      "assessment_modes": [
+        "EVENT_HISTORY"
+      ],
       "supported_fields": [
         "record_id",
         "scope_tags",
@@ -496,7 +526,9 @@
       "evidence_type": "access_review",
       "schema_version": "1.0",
       "collection_status": "COLLECTED",
-      "assessment_modes": ["EVENT_HISTORY"],
+      "assessment_modes": [
+        "EVENT_HISTORY"
+      ],
       "supported_fields": [
         "record_id",
         "scope_tags",
@@ -554,7 +586,9 @@
       "evidence_type": "audit_log_coverage",
       "schema_version": "1.0",
       "collection_status": "COLLECTED",
-      "assessment_modes": ["EVENT_HISTORY"],
+      "assessment_modes": [
+        "EVENT_HISTORY"
+      ],
       "supported_fields": [
         "record_id",
         "scope_tags",
@@ -611,7 +645,9 @@
       "evidence_type": "audit_event",
       "schema_version": "1.0",
       "collection_status": "COLLECTED",
-      "assessment_modes": ["EVENT_HISTORY"],
+      "assessment_modes": [
+        "EVENT_HISTORY"
+      ],
       "supported_fields": [
         "record_id",
         "scope_tags",
@@ -672,7 +708,9 @@
       "evidence_type": "mfa_configuration",
       "schema_version": "1.0",
       "collection_status": "COLLECTED",
-      "assessment_modes": ["CONFIGURATION_SNAPSHOT"],
+      "assessment_modes": [
+        "CONFIGURATION_SNAPSHOT"
+      ],
       "supported_fields": [
         "record_id",
         "scope_tags",
@@ -730,7 +768,9 @@
       "evidence_type": "privileged_access_authentication",
       "schema_version": "1.0",
       "collection_status": "COLLECTED",
-      "assessment_modes": ["EVENT_HISTORY"],
+      "assessment_modes": [
+        "EVENT_HISTORY"
+      ],
       "supported_fields": [
         "record_id",
         "scope_tags",
@@ -787,7 +827,9 @@
       "evidence_type": "session_policy_configuration",
       "schema_version": "1.0",
       "collection_status": "COLLECTED",
-      "assessment_modes": ["CONFIGURATION_SNAPSHOT"],
+      "assessment_modes": [
+        "CONFIGURATION_SNAPSHOT"
+      ],
       "supported_fields": [
         "record_id",
         "scope_tags",
@@ -832,7 +874,9 @@
       "evidence_type": "endpoint_elevation",
       "schema_version": "1.0",
       "collection_status": "LOOKUP_AVAILABLE",
-      "assessment_modes": ["EVENT_HISTORY"],
+      "assessment_modes": [
+        "EVENT_HISTORY"
+      ],
       "supported_fields": [
         "record_id",
         "scope_tags",
@@ -852,7 +896,8 @@
         "accountmanagement.AccountAdminPrivilegeRequest"
       ],
       "caveats": [
-        "Covers NIST AC-6(10), CM-11 temporary endpoint elevation, application-specific elevation approval workflows, and time-bound privilege expiration."
+        "Covers NIST AC-6(10), CM-11 temporary endpoint elevation, application-specific elevation approval workflows, and time-bound privilege expiration.",
+        "Securden published product documentation (product tour, session management, approval workflow / JIT, security design, Endpoint Privilege Manager pages), read 2026-11-20. Vendor claim, not yet confirmed against the PAM's database. The collector does not send it yet; Django must confirm the source tables (source_models) before declaring it COLLECTED. Rules on it are generated and tested but stay validated, not activated."
       ],
       "field_meanings": {
         "elevation_id": {
@@ -901,7 +946,9 @@
       "evidence_type": "local_admin_membership",
       "schema_version": "1.0",
       "collection_status": "LOOKUP_AVAILABLE",
-      "assessment_modes": ["CONFIGURATION_SNAPSHOT"],
+      "assessment_modes": [
+        "CONFIGURATION_SNAPSHOT"
+      ],
       "supported_fields": [
         "record_id",
         "scope_tags",
@@ -915,7 +962,8 @@
         "accountmanagement.Accounts"
       ],
       "caveats": [
-        "Covers NIST AC-6(5) local administrative group membership auditing, unauthorized local administrator detection, and workstation privilege hygiene."
+        "Covers NIST AC-6(5) local administrative group membership auditing, unauthorized local administrator detection, and workstation privilege hygiene.",
+        "Securden published product documentation (product tour, session management, approval workflow / JIT, security design, Endpoint Privilege Manager pages), read 2026-11-20. Vendor claim, not yet confirmed against the PAM's database. The collector does not send it yet; Django must confirm the source tables (source_models) before declaring it COLLECTED. Rules on it are generated and tested but stay validated, not activated."
       ],
       "field_meanings": {
         "device_id": {
@@ -940,7 +988,9 @@
       "evidence_type": "application_control_policy",
       "schema_version": "1.0",
       "collection_status": "LOOKUP_AVAILABLE",
-      "assessment_modes": ["CONFIGURATION_SNAPSHOT"],
+      "assessment_modes": [
+        "CONFIGURATION_SNAPSHOT"
+      ],
       "supported_fields": [
         "record_id",
         "scope_tags",
@@ -954,7 +1004,8 @@
         "pam.Configurations"
       ],
       "caveats": [
-        "Covers NIST CM-7(4), CM-7(5) application whitelisting, blacklisting execution controls, and authorized software enforcement."
+        "Covers NIST CM-7(4), CM-7(5) application whitelisting, blacklisting execution controls, and authorized software enforcement.",
+        "Securden published product documentation (product tour, session management, approval workflow / JIT, security design, Endpoint Privilege Manager pages), read 2026-11-20. Vendor claim, not yet confirmed against the PAM's database. The collector does not send it yet; Django must confirm the source tables (source_models) before declaring it COLLECTED. Rules on it are generated and tested but stay validated, not activated."
       ],
       "field_meanings": {
         "policy_id": {
@@ -978,8 +1029,10 @@
     {
       "evidence_type": "password_policy_configuration",
       "schema_version": "1.0",
-      "collection_status": "LOOKUP_AVAILABLE",
-      "assessment_modes": ["CONFIGURATION_SNAPSHOT"],
+      "collection_status": "COLLECTED",
+      "assessment_modes": [
+        "CONFIGURATION_SNAPSHOT"
+      ],
       "supported_fields": [
         "record_id",
         "scope_tags",
@@ -997,7 +1050,8 @@
         "accountmanagement.AccountPolicyMap"
       ],
       "caveats": [
-        "Covers NIST IA-5(1) password configuration verification: minimum length, multi-class complexity, rotation period, and password reuse history count."
+        "Covers NIST IA-5(1) password configuration verification: minimum length, multi-class complexity, rotation period, and password reuse history count.",
+        "Securden published product documentation (product tour, session management, approval workflow / JIT, security design, Endpoint Privilege Manager pages), read 2026-11-20. Vendor claim, not yet confirmed against the PAM's database. Declared COLLECTED on 2026-11-23 on the operator's confirmation that Django sends it; not verified by OPM."
       ],
       "field_meanings": {
         "policy_id": {
@@ -1037,8 +1091,10 @@
     {
       "evidence_type": "audit_forwarding_configuration",
       "schema_version": "1.0",
-      "collection_status": "LOOKUP_AVAILABLE",
-      "assessment_modes": ["CONFIGURATION_SNAPSHOT"],
+      "collection_status": "COLLECTED",
+      "assessment_modes": [
+        "CONFIGURATION_SNAPSHOT"
+      ],
       "supported_fields": [
         "record_id",
         "scope_tags",
@@ -1053,7 +1109,8 @@
         "audit.UserActivity"
       ],
       "caveats": [
-        "Covers NIST AU-4(1), AU-6(4) external audit repository forwarding, SIEM/Syslog transport configuration, and real-time offloading verification."
+        "Covers NIST AU-4(1), AU-6(4) external audit repository forwarding, SIEM/Syslog transport configuration, and real-time offloading verification.",
+        "Securden published product documentation (product tour, session management, approval workflow / JIT, security design, Endpoint Privilege Manager pages), read 2026-11-20. Vendor claim, not yet confirmed against the PAM's database. Declared COLLECTED on 2026-11-23 on the operator's confirmation that Django sends it; not verified by OPM."
       ],
       "field_meanings": {
         "destination_id": {
@@ -1082,7 +1139,9 @@
       "evidence_type": "backup_configuration",
       "schema_version": "1.0",
       "collection_status": "LOOKUP_AVAILABLE",
-      "assessment_modes": ["CONFIGURATION_SNAPSHOT"],
+      "assessment_modes": [
+        "CONFIGURATION_SNAPSHOT"
+      ],
       "supported_fields": [
         "record_id",
         "scope_tags",
@@ -1098,7 +1157,8 @@
         "pam.Configurations"
       ],
       "caveats": [
-        "Covers NIST CP-9(8) automated encrypted backup scheduling, backup completion tracking, and contingency data availability."
+        "Covers NIST CP-9(8) automated encrypted backup scheduling, backup completion tracking, and contingency data availability.",
+        "Securden published product documentation (product tour, session management, approval workflow / JIT, security design, Endpoint Privilege Manager pages), read 2026-11-20. Vendor claim, not yet confirmed against the PAM's database. The collector does not send it yet; Django must confirm the source tables (source_models) before declaring it COLLECTED. Rules on it are generated and tested but stay validated, not activated."
       ],
       "field_meanings": {
         "backup_id": {

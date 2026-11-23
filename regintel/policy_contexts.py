@@ -96,8 +96,9 @@ class EvidenceSupport(_In):
         default=None, min_length=1, max_length=2)
     supported_fields: list[Annotated[str, StringConstraints(pattern=r"^[a-z][a-z0-9_]{0,63}$")]] | None = Field(
         default=None, min_length=1, max_length=64)
-    # Fields that exist in the PAM database/model for this evidence type but are not yet sent by the collector.
-    # When Django ships a field, move it from lookup_fields to supported_fields.
+    # optional: fields of a COLLECTED type that the PAM holds but the collector does not send yet. Rule generation
+    # may design and test rules on them; a rule that uses one waits (GENERATED_RULE_VALIDATED, COLLECTOR_MISSING)
+    # until the field moves to supported_fields.
     lookup_fields: list[Annotated[str, StringConstraints(pattern=r"^[a-z][a-z0-9_]{0,63}$")]] | None = Field(
         default=None, max_length=64)
     # COLLECTED: sent with evaluations today. LOOKUP_AVAILABLE: the PAM holds this data (a lookup over its
@@ -118,6 +119,11 @@ class EvidenceSupport(_In):
     def _lookup_needs_detail(self):
         if self.collection_status == "LOOKUP_AVAILABLE" and (not self.supported_fields or not self.assessment_modes):
             raise ValueError("LOOKUP_AVAILABLE evidence needs assessment_modes and supported_fields")
+        if self.lookup_fields:
+            if self.collection_status != "COLLECTED" or not self.supported_fields:
+                raise ValueError("lookup_fields belong to a COLLECTED type that also declares supported_fields")
+            if set(self.lookup_fields) & set(self.supported_fields):
+                raise ValueError("a field is either supported (sent) or a lookup field, not both")
         return self
 
 
@@ -397,21 +403,26 @@ def declare_capabilities(db: CatalogDb, *, scope: str, actor: str, body: Collect
     detail: dict[str, Any] = {}
     for e in body.evidence:
         if e.supported_fields is not None:
-            unknown_fields = sorted(set(e.supported_fields) - set(CUSTOM_RULE_FIELDS.get(e.evidence_type, {})))
+            unknown_fields = sorted((set(e.supported_fields) | set(e.lookup_fields or []))
+                                    - set(CUSTOM_RULE_FIELDS.get(e.evidence_type, {})))
             if unknown_fields:
                 raise CatalogError("UNKNOWN_EVIDENCE_FIELD", f"{e.evidence_type}: fields not in OPM's evidence schema "
                                    f"{unknown_fields}", details={"evidence_type": e.evidence_type,
                                                                  "fields": unknown_fields})
         if e.assessment_modes is not None or e.supported_fields is not None:
             detail[e.evidence_type] = {"assessment_modes": sorted(set(e.assessment_modes or [])),
-                                       "supported_fields": sorted(set(e.supported_fields or [])),
+                                       # lookup fields are offered to rule generation with the sent ones;
+                                       # a rule using one waits (listed again under lookup_fields)
+                                       "supported_fields": sorted(set(e.supported_fields or [])
+                                                                  | set(e.lookup_fields or [])),
+                                       **({"lookup_fields": sorted(set(e.lookup_fields))} if e.lookup_fields else {}),
                                        # extra keys only for lookup types, so existing digests stay unchanged
                                        **({"collection_status": e.collection_status,
                                            "schema_version": e.schema_version}
                                           if e.collection_status != "COLLECTED" else {}),
                                        **({"caveats": e.caveats} if e.caveats else {}),
                                        **({"field_meanings": e.field_meanings} if e.field_meanings else {})}
-            unknown_meant = sorted(set(e.field_meanings or {}) - set(e.supported_fields or []))
+            unknown_meant = sorted(set(e.field_meanings or {}) - set(e.supported_fields or []) - set(e.lookup_fields or []))
             if unknown_meant:
                 raise CatalogError("UNKNOWN_EVIDENCE_FIELD", f"{e.evidence_type}: field_meanings for fields it does "
                                    f"not declare {unknown_meant}", details={"evidence_type": e.evidence_type,

@@ -107,7 +107,13 @@
             "audit_event",
             "mfa_configuration",
             "privileged_access_authentication",
-            "session_policy_configuration"
+            "session_policy_configuration",
+            "endpoint_elevation",
+            "local_admin_membership",
+            "application_control_policy",
+            "password_policy_configuration",
+            "audit_forwarding_configuration",
+            "backup_configuration"
           ],
           "title": "Evidence Type",
           "type": "string"

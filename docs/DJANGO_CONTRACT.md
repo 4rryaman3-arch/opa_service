@@ -109,7 +109,7 @@ A new jurisdiction isn't announced in `/changes`, so re-fetch the list.
 ### 4.2 Uploads: `POST /uploads`
 
 The body is the **raw file bytes** (`application/octet-stream`, not multipart). Query parameters: `filename`
-(`^[A-Za-z0-9][A-Za-z0-9._-]*\.(pdf|html|txt)$`, ≤ 150; sanitize first), `language` (BCP 47, default `en`),
+(`^[A-Za-z0-9][A-Za-z0-9._-]*\.(pdf|html|txt|json)$`, ≤ 150; sanitize first), `language` (BCP 47, default `en`),
 `provenance` (30–2000), `license_note` (3–300).
 
 | | Legacy (no scope header) | Scoped (header present) |
@@ -119,8 +119,19 @@ The body is the **raw file bytes** (`application/octet-stream`, not multipart). 
 | `request_key` | – | required, 8–100 (422 `REQUEST_KEY_REQUIRED`) |
 | Result | 201 `{source_id, status:"PROPOSED", sha256, bytes, next_step}`. Nothing is parsed until a human verifies the source and a `sync` job runs. Uploading twice creates two sources | 201 `{organization_scope, document_ids, content_sha256, source_id, source_origin:"UPLOADED_DOCUMENT"}`. The file is parsed immediately and the source is auto-verified as **organization-scoped working input, never official**. Same key with the same bytes and metadata: 200 replay. Changed: 409 `IDEMPOTENCY_CONFLICT` |
 
-Shared errors: 413 `PAYLOAD_TOO_LARGE` (5 MiB), 422 `EMPTY_UPLOAD`, `INVALID_PDF`. Scanned PDFs come back incomplete
-because there is no OCR.
+Shared errors: 413 `PAYLOAD_TOO_LARGE` (5 MiB), 422 `EMPTY_UPLOAD`, `INVALID_PDF`, `INVALID_OSCAL`. Scanned PDFs come
+back incomplete because there is no OCR.
+
+- **OSCAL catalogs (`.json`, preferred for NIST SP 800-53).** A `.json` upload must be an OSCAL catalog (NIST
+  publishes SP 800-53 in OSCAL at `usnistgov/oscal-content`); anything else is 422 `INVALID_OSCAL`. Each base control
+  becomes one section (`#n AC-2 ACCOUNT MANAGEMENT`) holding its statement and its enhancements in the official
+  layout, parameters written as `[Assignment: organization-defined …]` / `[Selection …: …]`. Discussion text and
+  withdrawn controls are left out. Control ids, enhancements and clauses are then derived exactly as for the PDF,
+  without page layout, running headers or table of contents. The full rev5 catalog is about 10 MB, over the 5 MiB
+  limit; a resolved baseline catalog (e.g. MODERATE, about 4 MB) fits.
+- **PDF ligatures.** Text extracted from a PDF has ligature glyphs expanded (`ﬁ` → `fi`) and private-use font glyphs
+  ("Iden?fy" in Calibri) read from the document's own vocabulary; a word with no plain reading is left unchanged.
+  Only documents parsed from now on are affected; a re-upload of identical bytes reuses the stored version.
 
 ### 4.3 Verification and review
 
@@ -646,6 +657,35 @@ proposal (no new model call) and activates it. The body may be the PAM capabilit
 `evidence_capabilities` is accepted for `evidence`, and top-level `schema_version` and `settings_sources`
 (where each threshold lives in the PAM; the values themselves come from `PUT /admin/pam-configuration`) are accepted.
 
+**Further Securden capabilities (evidence schema 1.0, additive, 2026-11-20).** Taken from Securden's published
+product documentation (vendor claims, not yet confirmed against the PAM database). All new fields are optional, so
+existing collectors stay valid and no schema version changes.
+- `lookup_fields[]` (optional, `COLLECTED` types only, disjoint from `supported_fields`): fields the PAM holds but
+  the collector does not send yet. Rule generation may use them; a rule that uses one is
+  `GENERATED_RULE_VALIDATED` with `COLLECTOR_MISSING` and `waiting_for_collector.pending_fields`, and is activated
+  by the next job after the field moves to `supported_fields`. `pam_capability_inventory.json` declares the fields
+  below this way.
+- A generated rule needs a never-null timestamp to place records in the period; `credential_rotation` has none
+  (`last_rotated_at` may be null), so IA-5 requirements get no generated rule until a snapshot time is added.
+- New optional fields on existing types (declare them in `supported_fields` only once the collector sends them):
+  - `privileged_access_request`: `ticket_reference`, `justification_provided`, `auto_approved`,
+    `approvals_required`, `approvals_received`, `access_expires_at` (may lie after the period end), `revoked_at`,
+    `credential_reset_after_use`.
+  - `privileged_session`: `shadowed`, `terminated_by_admin`, `credential_disclosed`.
+  - `credential_rotation`: `breached`, `policy_compliant`.
+  - `privileged_account`: `owner_id`.
+- New evidence types, declared `LOOKUP_AVAILABLE` in `pam_capability_inventory.json` (no `source_models` yet;
+  Django confirms the source tables before declaring them `COLLECTED`):
+  - `endpoint_elevation` (`EVENT_HISTORY`): EPM elevation requests, with approval, expiry and revocation.
+  - `local_admin_membership`: local administrator accounts per endpoint, with `approved_member`.
+  - `application_control_policy`: allowlist and blocklist policies, with `enforced`.
+  - `password_policy_configuration`: length, complexity, rotation period, history, `enforced_on_reset`.
+  - `audit_forwarding_configuration`: syslog / SIEM destinations, with `enabled`, `last_delivery_at`.
+  - `backup_configuration`: `scheduled`, `encrypted`, last backup time and status.
+- The Securden NIST matrix (hub, control-hub-v1) gains 10 entries for them, each marked with a `source` note:
+  AC-6(10), CM-11, AC-6(5), CM-7(5), CM-7(4), IA-5(1), AU-6(4), AU-4(1), CP-9(8), AU-14(3). A control may now
+  list more than one evidence type, so the hub allows a rule on any of them.
+
 Each entry may also carry `field_meanings {field: {meaning, shows}}` (strings up to 300 characters; only for fields
 in its `supported_fields`, else 422 `UNKNOWN_EVIDENCE_FIELD`): what the field means in this PAM and which kind of
 obligation a test on it can evidence. The rule generator reasons from these meanings, not from field names. Without
@@ -778,6 +818,32 @@ raw output. A retry with identical inputs re-checks the stored output without ca
   evidence_type, field}` and `review {text, verdict, answer, failing_record, records{A,B}, spec_digest}`; a judged
   rule has the check `judged_by_model`. With a runtime
   that cannot answer in plain text the analyse and judge steps are skipped and the word gate below decides.
+- **Hub controls first (`control-hub-v1`).** For a document with catalog control headings (NIST SP 800-53, PDF or
+  OSCAL), a rule may be generated only for the statement of a control listed in the Securden NIST SP 800-53 matrix
+  (`regintel/securden_nist_800_53_matrix.json`, exact control, clause or enhancement, also through `aliases`; an
+  enhancement is never covered by its base control) and only on the evidence type the matrix lists for it.
+  Passages before the first control heading (front matter, table of contents), discussion text and controls the
+  matrix does not list are `OUTSIDE_PAM_SCOPE` with `model_called: false`. A stored proposal on other evidence is
+  rejected the same way. When a job reaches `OUTSIDE_PAM_SCOPE` for a requirement that still has a live generated
+  mapping of this organization, the mapping is withdrawn (tombstone in the change feed), the generated rule becomes
+  `FAILED` and is deactivated in the evaluator when no other live mapping uses it; the decision lists
+  `withdrawn_mapping_ids` and `counts.generated_mappings_withdrawn` totals them. Activation itself stays automatic.
+  Regulations and organization documents (no control headings) are not governed by the hub.
+- **Vetted rules first for hub controls (`matrix-candidates-v1`).** Assignment of existing rules offers the vetted
+  rule of each evidence type the matrix lists for the control statement (e.g. AC-12 → `PAM-SESSIDLE-001`, AC-17 →
+  `PAM-SESSREC-001`) where the fixed candidate table has none; the model still judges the fit. Generation then runs
+  only where no vetted rule was assigned: after `NO_EXECUTABLE_RULE` / `LLM_NO_MAP`, and also when the vetted
+  candidate could not be assigned (`LLM_MAPPING_AMBIGUOUS`, `LLM_OUTPUT_INVALID`, `VALIDATION_FAILED`). Every vetted
+  rule is registered by `python -m regintel init` (idempotent); run it after an upgrade that adds predefined rules.
+- **Requirement review `review-v2`.** A wrong PAM-domain label or obligation type is corrected, not a reason to
+  reject (audit `REQUIREMENT_LABELS_CORRECTED`, before/after values; the regulatory text is never changed).
+  Imperative control statements are `MANDATORY`. Approval is decided in code from the review checks: quote
+  supported, the passage is a requirement (not a heading, title list, table-of-contents line or discussion),
+  thresholds grounded, and labels correct or corrected.
+- **Rule quality gates (`rule-quality-v1`, `RULE_SPEC_INVALID`).** A generated rule may not require
+  `audit_event.target_id` / `location_id` on every event (legitimately empty for many events), may not require
+  `privileged_session.ended_at` (sessions still running at period end have none), and may not be a single
+  "field is present" test over all audit events (it passes any feed).
 - Generation only asks the model about a requirement whose wording relates to a declared
   evidence type with a collected non-null timestamp (screen `rule-screen-v2`: each evidence type has a keyword list, and only the types whose
   keywords the requirement uses are offered to the model). Any other requirement is

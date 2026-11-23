@@ -33,6 +33,9 @@ class CredentialRotationRecord(BaseRecord):
     last_rotated_at: UtcDatetime | None
     last_rotation_status: Literal["SUCCESS", "FAILED"] | None = None
     captured_at: UtcDatetime | None = None
+    # optional (Securden documents both; sent once the collector reads them)
+    breached: StrictBool | None = None  # credential found in a breached-password check
+    policy_compliant: StrictBool | None = None  # credential meets its assigned password policy
 
 
 class PrivilegedSessionRecord(BaseRecord):
@@ -45,6 +48,9 @@ class PrivilegedSessionRecord(BaseRecord):
     recording_status: Literal["AVAILABLE", "PARTIAL", "MISSING", "FAILED", "PROCESSING"]
     recording_reference: Identifier | None = None
     credential_reset_after_use: StrictBool | None = None
+    shadowed: StrictBool | None = None  # an administrator watched the session live
+    terminated_by_admin: StrictBool | None = None  # an administrator ended the session
+    credential_disclosed: StrictBool | None = None  # the password was shown to the user (False: injected)
 
     @model_validator(mode="after")
     def _check(self):
@@ -63,14 +69,21 @@ class PrivilegedAccessRequestRecord(BaseRecord):
     approval_id: Identifier | None = None
     approved_at: UtcDatetime | None = None
     approver_id: Identifier | None = None
-    approvals_required: Count | None = None
+    ticket_reference: Identifier | None = None  # ITSM ticket the access was validated against
+    justification_provided: StrictBool | None = None
+    auto_approved: StrictBool | None = None  # approved by an automatic-approval policy, not a person
+    approvals_required: Count | None = None  # approver levels the workflow requires
     approvals_received: Count | None = None
-    credential_reset_after_use: StrictBool | None = None
+    access_expires_at: UtcDatetime | None = None  # end of the just-in-time access window
+    revoked_at: UtcDatetime | None = None  # when access was actually taken away
+    credential_reset_after_use: StrictBool | None = None  # password changed after the release ended
 
     @model_validator(mode="after")
     def _check(self):
         if self.approval_status == "APPROVED" and (self.approved_at is None or self.approver_id is None):
             raise ValueError("APPROVED requests require approved_at and approver_id")
+        if self.revoked_at is not None and self.revoked_at < self.accessed_at:
+            raise ValueError("revoked_at precedes accessed_at")
         return self
 
 
@@ -80,7 +93,7 @@ class PrivilegedAccountRecord(BaseRecord):
     enabled: StrictBool
     created_at: UtcDatetime
     last_used_at: UtcDatetime | None
-    owner_id: Identifier | None = None
+    owner_id: Identifier | None = None  # account owner (Securden: no account may be left without one)
 
     @model_validator(mode="after")
     def _check(self):
@@ -259,6 +272,12 @@ class SessionPolicyConfigurationRecord(BaseRecord):
         return self
 
 
+# ---------------------------------------------------------------------------
+# Further Securden capabilities (published product documentation, 2026-11-20). Declared LOOKUP_AVAILABLE in
+# pam_capability_inventory.json until the collector sends them.
+# ---------------------------------------------------------------------------
+
+
 class EndpointElevationRecord(BaseRecord):
     """Event history: temporary privilege elevation on managed endpoints (AC-6(10), CM-11)."""
 
@@ -275,6 +294,10 @@ class EndpointElevationRecord(BaseRecord):
 
     @model_validator(mode="after")
     def _check(self):
+        if self.approval_status == "APPROVED" and (self.approved_at is None or self.approver_id is None):
+            raise ValueError("APPROVED elevations require approved_at and approver_id")
+        if self.revoked_at is not None and self.revoked_at < self.requested_at:
+            raise ValueError("revoked_at precedes requested_at")
         if self.elevation_expires_at is not None and self.elevation_expires_at < self.requested_at:
             raise ValueError("elevation_expires_at precedes requested_at")
         if self.approved_at is not None and self.approved_at < self.requested_at:
@@ -305,7 +328,7 @@ class PasswordPolicyConfigurationRecord(BaseRecord):
 
     policy_id: Identifier
     applies_to_privileged: StrictBool
-    min_length: Annotated[StrictInt, Field(ge=0, le=1000)]
+    min_length: Annotated[StrictInt, Field(ge=0, le=1024)]
     complexity_required: StrictBool
     enforced_on_reset: StrictBool
     captured_at: UtcDatetime
@@ -392,6 +415,7 @@ FUTURE_ALLOWED_FIELDS: dict[str, frozenset[str]] = {
     "access_authorization": frozenset({"entitlement_valid_to"}),
     "policy_exception": frozenset({"expires_at"}),
     "audit_log_coverage": frozenset({"coverage_end"}),
+    "privileged_access_request": frozenset({"access_expires_at"}),
     "endpoint_elevation": frozenset({"elevation_expires_at"}),
 }
 
@@ -416,6 +440,8 @@ CUSTOM_RULE_FIELDS: dict[str, dict[str, dict]] = {
         "last_rotated_at": _f("datetime", True),
         "last_rotation_status": _f("enum", True, ("SUCCESS", "FAILED")),
         "captured_at": _f("datetime", False),
+        "breached": _f("boolean", True),
+        "policy_compliant": _f("boolean", True),
     },
     "privileged_session": {
         **_COMMON,
@@ -428,6 +454,9 @@ CUSTOM_RULE_FIELDS: dict[str, dict[str, dict]] = {
         "recording_status": _f("enum", False, ("AVAILABLE", "PARTIAL", "MISSING", "FAILED", "PROCESSING")),
         "recording_reference": _f("string", True),
         "credential_reset_after_use": _f("boolean", True),
+        "shadowed": _f("boolean", True),
+        "terminated_by_admin": _f("boolean", True),
+        "credential_disclosed": _f("boolean", True),
     },
     "privileged_access_request": {
         **_COMMON,
@@ -440,8 +469,13 @@ CUSTOM_RULE_FIELDS: dict[str, dict[str, dict]] = {
         "approval_id": _f("string", True),
         "approved_at": _f("datetime", True),
         "approver_id": _f("string", True),
+        "ticket_reference": _f("string", True),
+        "justification_provided": _f("boolean", True),
+        "auto_approved": _f("boolean", True),
         "approvals_required": _f("integer", True),
         "approvals_received": _f("integer", True),
+        "access_expires_at": _f("datetime", True),
+        "revoked_at": _f("datetime", True),
         "credential_reset_after_use": _f("boolean", True),
     },
     "privileged_account": {
