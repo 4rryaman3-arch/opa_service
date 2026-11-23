@@ -37,7 +37,7 @@ from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, ValidationError
 
-from . import catalog, control_ids, coverage, extraction
+from . import PAM_DOMAINS, catalog, control_ids, coverage, extraction
 from . import mapping_policy, mapping_recipes
 from . import plan as planning
 from .db import CatalogDb, CatalogError, canonical, now_iso
@@ -67,7 +67,10 @@ def pipeline_options(languages: list[str] | None, screening: str | None) -> tupl
     if screening not in SCREENING_MODES:
         raise CatalogError("INVALID_SCREENING", f"screening must be one of {list(SCREENING_MODES)}")
     return languages, screening
-REVIEW_PROMPT_VERSION = "review-v1"
+# v2 (2026-11-20): wrong labels are corrected, not rejected (NIST run: 10 control statements on Securden-matrix
+# controls, e.g. AC-2(3) "Disable accounts within ...", were rejected only because the extractor's PAM domain label
+# was wrong; AC-2(1) because imperative control wording is not "shall"). Approval is decided in code from the checks.
+REVIEW_PROMPT_VERSION = "review-v2"
 TRANSLATION_REVIEW_PROMPT_VERSION = "translation-review-v1"
 
 STATEMENT = (
@@ -83,12 +86,20 @@ SYSTEM_REVIEW = (
     "quote_supported: the quoted passage appears in the section and itself concerns user or administrator access, "
     "accounts, identities, credentials/passwords/keys, authentication, privileged sessions, access logging or "
     "monitoring, access reviews, emergency access, or segregation of duties.\n"
+    "is_requirement: the passage itself states an obligation or instruction. A control or enhancement heading or "
+    "title alone, a list of enhancement titles, a table-of-contents line, or explanatory/discussion text is not.\n"
     "obligation_type_correct: the stated obligation type matches the binding force of the passage's own wording "
-    "(shall/must-type = MANDATORY, should-type = RECOMMENDED, may-type = PERMISSIVE).\n"
+    "(shall/must-type = MANDATORY, should-type = RECOMMENDED, may-type = PERMISSIVE). In a control catalog such as "
+    "NIST SP 800-53, a control statement is an imperative instruction ('Disable accounts ...', 'Enforce ...', "
+    "'Support the management of ...'); imperative control statements are MANDATORY.\n"
     "thresholds_grounded: every reported threshold value appears literally inside the quoted passage.\n"
     "domains_relevant: the stated PAM domains are subjects the passage itself mentions.\n"
-    "Answer verdict APPROVE only when every check passes. When in doubt, REJECT: a wrong rejection can be corrected "
-    "by a human reviewer, a wrong approval cannot. Give short factual reasons."
+    "Labels are corrections, not reasons to reject: when the obligation type or the PAM domains are wrong but the "
+    "passage is a supported requirement, set that check to false AND give the right value in "
+    "corrected_obligation_type / corrected_pam_domains (domains only from: " + ", ".join(PAM_DOMAINS) + ").\n"
+    "Answer verdict APPROVE only when every check passes after those corrections. When in doubt about the quote, the "
+    "requirement itself or the thresholds, REJECT: a wrong rejection can be corrected by a human reviewer, a wrong "
+    "approval cannot. Give short factual reasons."
 )
 SYSTEM_TRANSLATION_REVIEW = (
     "You review an English working translation of a regulatory passage against its original. Check that the "
@@ -101,6 +112,7 @@ SYSTEM_TRANSLATION_REVIEW = (
 class _Checks(BaseModel):
     model_config = ConfigDict(extra="forbid")
     quote_supported: bool
+    is_requirement: bool = True  # absent in review-v1 attempts
     obligation_type_correct: bool
     thresholds_grounded: bool
     domains_relevant: bool
@@ -111,6 +123,25 @@ class _Review(BaseModel):
     verdict: Literal["APPROVE", "REJECT"]
     reasons: list[str] = Field(default_factory=list, max_length=10)
     checks: _Checks
+    corrected_obligation_type: Literal["MANDATORY", "RECOMMENDED", "PERMISSIVE"] | None = None
+    corrected_pam_domains: list[Literal[PAM_DOMAINS]] = Field(default_factory=list, max_length=3)  # type: ignore[valid-type]
+
+    def corrections(self) -> dict[str, Any]:
+        """Label corrections the review supports (only for the checks it failed)."""
+        out: dict[str, Any] = {}
+        if not self.checks.obligation_type_correct and self.corrected_obligation_type:
+            out["obligation_type"] = self.corrected_obligation_type
+        if not self.checks.domains_relevant and self.corrected_pam_domains:
+            out["pam_domains"] = sorted(set(self.corrected_pam_domains))
+        return out
+
+    def approves(self) -> bool:
+        """Deterministic decision from the checks: the quote, the requirement itself and the thresholds must hold;
+        a wrong obligation type or domain label must come with a correction."""
+        c, fix = self.checks, self.corrections()
+        return (c.quote_supported and c.is_requirement and c.thresholds_grounded
+                and (c.obligation_type_correct or "obligation_type" in fix)
+                and (c.domains_relevant or "pam_domains" in fix))
 
 
 class _TranslationReview(BaseModel):
@@ -693,16 +724,26 @@ def build_framework(db: CatalogDb, *, actor: str, framework_id: str, llm: LocalL
             problems.append({"code": "REVIEW_FAILED", "message": "; ".join(review_problems),
                              "attempt_id": attempt_id})
             result["llm_errors"] += 1
-        elif review is not None and review.verdict != "APPROVE":
+        elif review is not None and not review.approves():
             problems.append({"code": "REVIEW_REJECTED",
                              "message": "; ".join(review.reasons) or "the review model rejected the candidate",
                              "attempt_id": attempt_id})
         problems.extend(_code_checks(db, req))
         if not problems:
             try:
+                fix = review.corrections() if review is not None else {}
+                if fix:  # label corrections from the review (draft fields; the regulatory text is untouched)
+                    with db.tx():
+                        db.x("UPDATE regulatory_requirement SET " + ", ".join(f"{k}=?" for k in fix)
+                             + " WHERE id=? AND status='DRAFT'",
+                             [canonical(v) if isinstance(v, list) else v for v in fix.values()] + [req["id"]])
+                        db.audit(me, "REQUIREMENT_LABELS_CORRECTED", "requirement", req["id"],
+                                 before={k: req[k] for k in fix}, after=fix, review_attempt_id=attempt_id,
+                                 prompt_version=REVIEW_PROMPT_VERSION)
                 catalog.review(
                     db, "requirement", req["id"], reviewer=me, decision="APPROVED",
-                    comment=f"AUTOMATED approval ({POLICY_VERSION}): model review APPROVE "
+                    comment=f"AUTOMATED approval ({POLICY_VERSION}): model review checks passed"
+                            f"{' with label corrections ' + canonical(fix) if fix else ''} "
                             f"({model_info['model']}@{model_info['model_version'][:20]}, attempt {attempt_id}) and "
                             "deterministic checks passed (operative text, addressee, grounding, attribution, "
                             "thresholds, duplicates, dates).",

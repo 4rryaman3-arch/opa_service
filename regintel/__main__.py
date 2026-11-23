@@ -18,6 +18,9 @@ Environment (all optional except the model for extraction / llm-check):
   OPM_REGINTEL_LLM_TIMEOUT   inference timeout       (default 600 seconds)
   OPM_REGINTEL_LLM_KEEP_ALIVE loaded model lifetime  (default 5m)
   OPM_REGINTEL_REQUIRE_GPU   reject CPU-only output  (default 1)
+  OPM_REGINTEL_LLM_PROVIDER  ollama | azure_openai   (default ollama; azure_openai also needs
+                             OPM_REGINTEL_ALLOW_HOSTED_LLM=1, OPM_REGINTEL_AZURE_ENDPOINT,
+                             OPM_REGINTEL_AZURE_DEPLOYMENT and AZURE_OPENAI_API_KEY)
 
 Every write takes --actor (the person doing it). Review commands refuse an
 actor who authored the item.
@@ -57,8 +60,23 @@ def _load(path: str) -> Any:
 
 
 def _llm():
-    from .llm import OllamaClient
+    from .llm import AzureOpenAIClient, OllamaClient
 
+    provider = os.environ.get("OPM_REGINTEL_LLM_PROVIDER", "ollama").strip().lower()
+    if provider == "azure_openai":
+        if os.environ.get("OPM_REGINTEL_ALLOW_HOSTED_LLM", "0").strip().lower() not in ("1", "true", "yes", "on"):
+            raise CatalogError("LLM_NOT_CONFIGURED", "OPM_REGINTEL_LLM_PROVIDER=azure_openai sends regulatory text to a "
+                                                     "hosted model; also set OPM_REGINTEL_ALLOW_HOSTED_LLM=1 to allow it")
+        endpoint = os.environ.get("OPM_REGINTEL_AZURE_ENDPOINT", "")
+        if not endpoint:
+            raise CatalogError("LLM_NOT_CONFIGURED", "set OPM_REGINTEL_AZURE_ENDPOINT to the Azure resource or project URL")
+        return AzureOpenAIClient(
+            endpoint, os.environ.get("OPM_REGINTEL_AZURE_DEPLOYMENT") or os.environ.get("OPM_REGINTEL_LLM_MODEL", ""),
+            os.environ.get("OPM_REGINTEL_AZURE_API_KEY") or os.environ.get("AZURE_OPENAI_API_KEY", ""),
+            max_tokens=int(os.environ.get("OPM_REGINTEL_LLM_NUM_PREDICT", "4096")),
+            timeout=float(os.environ.get("OPM_REGINTEL_LLM_TIMEOUT", "600")))
+    if provider != "ollama":
+        raise CatalogError("LLM_NOT_CONFIGURED", f"unknown OPM_REGINTEL_LLM_PROVIDER '{provider}' (ollama, azure_openai)")
     model = os.environ.get("OPM_REGINTEL_LLM_MODEL")
     if not model:
         raise CatalogError("LLM_NOT_CONFIGURED", "set OPM_REGINTEL_LLM_MODEL to an installed multilingual model")
@@ -276,8 +294,10 @@ def run(a: argparse.Namespace, db: CatalogDb) -> Any:
                                          "required": ["ok"], "additionalProperties": False})
             if response != {"ok": True}:
                 raise CatalogError("LLM_CHECK_FAILED", "the model did not return the requested JSON")
-            return {"model": llm.info.model, "model_version": llm.info.version, "runtime": llm.info.runtime,
-                    "num_ctx": llm.num_ctx, "gpu": llm.gpu_status()}
+            out = {"model": llm.info.model, "model_version": llm.info.version, "runtime": llm.info.runtime}
+            if hasattr(llm, "gpu_status"):  # local runtime only
+                out.update(num_ctx=llm.num_ctx, gpu=llm.gpu_status())
+            return out
     raise CatalogError("UNKNOWN_COMMAND", a.cmd)
 
 

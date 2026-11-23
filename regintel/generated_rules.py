@@ -46,7 +46,7 @@ from app.models.api import Evidence, ReportingPeriod
 from app.models.custom_rules import CustomFrameworkMapping, CustomRuleDefinition
 from app.models.evidence import CUSTOM_RULE_FIELDS, EVIDENCE_SCHEMA_VERSIONS
 
-from . import catalog, mapping_recipes as mr, policy_contexts as pctx, policy_controls as pc
+from . import catalog, control_hub, mapping_recipes as mr, policy_contexts as pctx, policy_controls as pc
 from .db import CatalogDb, CatalogError, canonical, digest_of, now_iso
 from .llm import LlmError
 
@@ -82,7 +82,12 @@ FLAG_GENERATE = "REGINTEL_AUTO_RULE_GENERATION"
 FLAG_PUBLISH = "REGINTEL_AUTO_PUBLISH_GENERATED_RULES"
 ROOT = Path(__file__).resolve().parents[1]
 DEFAULT_MIN_CONFIDENCE = 0.8
-TRIGGER_CODES = frozenset({"NO_EXECUTABLE_RULE", "LLM_NO_MAP"})  # existing-rule matching found nothing
+# existing-rule matching found nothing, or its candidate could not be assigned. The second group falls back to
+# generation since matrix-candidates-v1 offers vetted rules for every hub control: before, those requirements had no
+# candidate and were generated; a low-confidence or invalid answer on the vetted candidate left them with nothing
+# (NIST run 2026-11-20: 24 requirements, e.g. AC-17(1), MA-4 a, IA-2, which had good generated rules before).
+TRIGGER_CODES = frozenset({"NO_EXECUTABLE_RULE", "LLM_NO_MAP",
+                           "LLM_MAPPING_AMBIGUOUS", "LLM_OUTPUT_INVALID", "VALIDATION_FAILED"})
 
 # outcome codes (DJANGO_CONTRACT §5.4)
 GENERATED_RULE_ACTIVATED = "GENERATED_RULE_ACTIVATED"
@@ -395,6 +400,9 @@ def validate(spec: RuleSpec, *, req: dict[str, Any], cap: dict[str, Any], db: Ca
     if not any(p.field not in identity for p in _predicates(spec.condition)):
         raise Gap("RULE_SPEC_INVALID", "the condition tests only the record's identity or period fields; it "
                   "would pass every record")
+    quality = rule_quality_gap(spec)
+    if quality:
+        raise Gap("RULE_SPEC_INVALID", quality)
     unused = sorted(set(spec.parameters) - referenced)
     if unused:
         raise Gap("RULE_SPEC_INVALID", f"declared parameters not used by the condition: {unused}")
@@ -420,6 +428,40 @@ def validate(spec: RuleSpec, *, req: dict[str, Any], cap: dict[str, Any], db: Ca
         raise Gap("RULE_SPEC_INVALID", f"the limitations are copied from the prompt's worked example {copied}; the "
                   "proposal does not reason about this requirement")
     return checks
+
+
+# Quality gates (rule-quality-v1, 2026-11-20). Each pattern went live in the NIST gpt-4.1 run and would misreport:
+# - AU-3 / AU-12 c: "every audit event has event type, location, source, outcome, actor AND target" fails compliant
+#   logs, because events legitimately leave context fields empty (a logon has no target, a system event no actor);
+# - MA-4 e: "every recorded session has ended_at" fails every session still running when the period closes;
+# - AC-2(4), AC-6(9), AU-2 a: "event_type exists" over all audit events passes any feed; it never checks that the
+#   events the requirement names (account changes, privileged functions) are logged.
+RULE_QUALITY_VERSION = "rule-quality-v1"
+_OPTIONAL_CONTEXT: dict[str, frozenset[str]] = {"audit_event": frozenset({"target_id", "location_id"})}
+_IN_PROGRESS_FIELDS: dict[str, frozenset[str]] = {"privileged_session": frozenset({"ended_at"})}
+_GENERAL_STREAMS = frozenset({"audit_event"})
+
+
+def rule_quality_gap(spec: RuleSpec) -> str | None:
+    """Why the rule would misreport compliant evidence (or pass anything), or None."""
+    leaves = list(_predicates(spec.condition))
+    required = [p for p in leaves if p.operator == "exists"]
+    context = sorted({p.field for p in required} & _OPTIONAL_CONTEXT.get(spec.evidence_type, frozenset()))
+    if context:
+        return (f"the condition requires {context} on every {spec.evidence_type} record; those fields are "
+                "legitimately empty for many events, so compliant evidence would fail (test only fields every "
+                "in-scope record must carry, or filter the population to the events that have them)")
+    running = sorted({p.field for p in required} & _IN_PROGRESS_FIELDS.get(spec.evidence_type, frozenset()))
+    if running:
+        return (f"the condition requires {running} to be set; sessions still running when the period closes have "
+                "none, so the rule would fail them (test a recorded property of the session instead)")
+    # only for the general audit stream: on a specific type (a break-glass event "has a ticket") the population
+    # already is the events the requirement names
+    if (spec.evidence_type in _GENERAL_STREAMS and len(leaves) == 1 and leaves[0].operator in _NULL_OPS
+            and not spec.population.where):
+        return (f"the condition only checks that {leaves[0].field} is present on every record, without narrowing "
+                "the population to the records the requirement names; any evidence feed passes it")
+    return None
 
 
 def _check_predicate(pred: Predicate, catalogue: dict[str, Any], spec: RuleSpec, referenced: set[str]) -> None:
@@ -1092,12 +1134,24 @@ EVIDENCE_KEYWORDS: dict[str, tuple[str, ...]] = {
     "audit_log_coverage": ("audit", "logging", "monitoring", "siem", "syslog", "retain", "retention", "incident",
                            "anomal", "uba", "encrypt", "tls", "fips"),
     "policy_exception": ("exception", "waiver", "separation of duties", "sod"),
-    "endpoint_elevation": ("elevat", "privilege", "endpoint", "workstation", "least privilege", "user-installed", "execution", "temporary privilege"),
-    "local_admin_membership": ("local admin", "administrator", "administrative group", "membership", "local account", "group membership"),
-    "application_control_policy": ("application", "software", "execution", "allowlist", "blocklist", "whitelisting", "blacklisting", "authorized software", "unauthorized software"),
-    "password_policy_configuration": ("password", "authenticator", "complexity", "length", "composition", "history", "rotation period"),
-    "audit_forwarding_configuration": ("audit", "forward", "destination", "syslog", "siem", "export", "offload", "centraliz", "telemetry"),
-    "backup_configuration": ("backup", "schedul", "encrypt", "recovery", "retention", "contingency", "restore"),
+    # further Securden capabilities (LOOKUP_AVAILABLE until the collector sends them)
+    "endpoint_elevation": ("elevat", "privilege", "endpoint", "workstation", "least privilege", "user-installed",
+                           "execution", "temporary privilege", "privileged function", "install",
+                           "application execution", "run as admin", "temporary admin"),
+    "local_admin_membership": ("local admin", "administrator", "administrative group", "membership", "local account",
+                               "group membership", "administrative", "privileged account", "least privilege",
+                               "privileged group", "endpoint"),
+    "application_control_policy": ("application", "software", "execution", "allowlist", "blocklist", "whitelisting",
+                                   "blacklisting", "authorized software", "unauthorized software", "allow-list",
+                                   "whitelist", "deny-list", "blacklist", "application execution",
+                                   "program execution", "least functionality"),
+    "password_policy_configuration": ("password", "authenticator", "complexity", "length", "composition", "history",
+                                      "rotation period", "password-based", "reuse"),
+    "audit_forwarding_configuration": ("audit", "forward", "destination", "syslog", "siem", "export", "offload",
+                                       "centraliz", "telemetry", "central", "transfer", "alternate storage",
+                                       "integrat", "correlat", "aggregat", "repository"),
+    "backup_configuration": ("backup", "schedul", "encrypt", "recovery", "retention", "contingency", "restore",
+                             "back up", "back-up", "cryptographic protection"),
 }
 
 
@@ -1113,25 +1167,43 @@ FIELD_TERMS: dict[str, dict[str, tuple[str, ...]]] = {
     "privileged_session": {"recording_status": (RECORDING,), "recording_reference": (RECORDING,),
                            "recording_required": (RECORDING,),
                            "ended_at": ("terminat", "logout", "log out", "duration", "session", "remote"),
-                           "credential_reset_after_use": ("reset", "revok", "one-time", "after use", "post-session", "checkout"),
-                           "shadowed": ("shadow", "control mode")},
+                           "credential_reset_after_use": ("reset", "revok", "one-time", "after use", "post-session",
+                                                          "checkout"),
+                           "shadowed": ("shadow", "control mode", "monitor", "view", "observ", "listen",
+                                        "real time", "real-time"),
+                           "terminated_by_admin": ("terminat", "disconnect", "disable", "stop", "end the session"),
+                           "credential_disclosed": ("disclos", "expos", "reveal", "protect", "authenticator",
+                                                    "password", "credential")},
     "privileged_account": {"enabled": ("enable", "disable", "account"),
-                           "owner_id": ("owner", "custodian", "accountable", "individual", "assign"),
+                           "owner_id": ("owner", "custodian", "accountable", "individual", "assign", "account manager",
+                                        "responsib"),
                            "last_used_at": ("inactiv", "dormant", "unused", "not used", "last used", "last use",
                                             "disable", "remove", "temporary", "account")},
     "credential_rotation": {"last_rotated_at": ("rotat", "refresh", "chang", "expir", "authenticator", "password", "key"),
                             "last_rotation_status": ("rotat", "refresh", "chang", "authenticator", "password", "key",
                                                      "credential", "salted", "hash", "complexity", "composition", "encrypt"),
                             "captured_at": ("snapshot", "time", "date", "rotat", "capture"),
-                            "policy_compliant": ("policy", "compliant", "compli")},
+                            "breached": ("compromis", "breach", "exposed", "commonly-used", "expected", "list"),
+                            "policy_compliant": ("complexity", "composition", "length", "policy", "compliant",
+                                                 "compli", "password", "authenticator", "strength")},
     "privileged_access_request": {"approval_status": ("approv", "request", "authoriz", "ticket", "elevat", "privilege",
                                                       "account", "application", "change"),
                                   "approval_id": ("approv", "ticket", "request"),
                                   "approved_at": ("approv", "request"),
                                   "approver_id": ("approv", "request", "authoriz"),
-                                  "approvals_required": ("approv", "dual authorization", "two-person", "quorum", "threshold"),
-                                  "approvals_received": ("approv", "authoriz", "quorum", "received"),
-                                  "credential_reset_after_use": ("reset", "revok", "one-time", "after use", "post-use", "checkout")},
+                                  "approvals_required": ("approv", "dual authorization", "two-person", "quorum",
+                                                         "threshold", "dual", "two person", "multiple"),
+                                  "approvals_received": ("approv", "authoriz", "quorum", "received", "dual",
+                                                         "two-person", "two person", "multiple"),
+                                  "credential_reset_after_use": ("reset", "revok", "one-time", "after use",
+                                                                 "post-use", "checkout", "single use", "chang",
+                                                                 "authenticator", "password"),
+                                  "ticket_reference": ("ticket", "change request", "itsm", "change control"),
+                                  "justification_provided": ("justif", "business need", "reason", "purpose"),
+                                  "auto_approved": ("automat", "approv"),
+                                  "access_expires_at": ("temporary", "time-bound", "time bound", "just-in-time",
+                                                        "expir", "duration", "period", "time"),
+                                  "revoked_at": ("revok", "remov", "disable", "temporary", "expir", "terminat")},
     "authentication_summary": {"failed_attempts": ("unsuccessful", "failed", "invalid logon", "attempt", "lock"),
                                "lockout_triggered": ("lock", "unsuccessful", "failed", "invalid logon", "attempt")},
     "access_authorization": {"entitlement_status": ("authoriz", "entitle", "privilege", "account", "role", "access",
@@ -1171,7 +1243,8 @@ FIELD_TERMS: dict[str, dict[str, tuple[str, ...]]] = {
                                          "access_granted": ("authenticat", "identify", "grant", "access", "map")},
     "session_policy_configuration": {"idle_timeout_enabled": ("idle", "inactiv", "lock", "terminat", "session", "concurrent"),
                                      "idle_timeout_minutes": ("idle", "inactiv", "lock", "terminat", "session", "time")},
-    "endpoint_elevation": {"approval_status": ("approv", "authoriz", "auto-approv", "deni", "elevat"),
+    "endpoint_elevation": {"approval_status": ("approv", "authoriz", "auto-approv", "deni", "elevat", "privilege",
+                                               "install", "execut"),
                            "elevation_id": ("elevat", "request"),
                            "user_id": ("user", "actor", "individual"),
                            "device_id": ("device", "workstation", "endpoint"),
@@ -1179,41 +1252,60 @@ FIELD_TERMS: dict[str, dict[str, tuple[str, ...]]] = {
                            "application_id": ("application", "software", "program", "executable"),
                            "approver_id": ("approv", "authoriz"),
                            "approved_at": ("approv", "time"),
-                           "elevation_expires_at": ("expir", "time-bound", "duration", "temporary"),
-                           "revoked_at": ("revok", "terminat")},
-    "local_admin_membership": {"approved_member": ("approv", "authoriz", "member", "allow", "permit"),
-                              "device_id": ("device", "workstation", "endpoint", "host"),
-                              "account_id": ("account", "admin", "user"),
-                              "captured_at": ("snapshot", "time", "date")},
-    "application_control_policy": {"mode": ("mode", "allowlist", "blocklist", "monitor"),
-                                  "enforced": ("enforc", "prevent", "restrict", "control"),
-                                  "policy_id": ("policy", "rule"),
-                                  "captured_at": ("snapshot", "time", "date")},
+                           "elevation_expires_at": ("expir", "time-bound", "duration", "temporary", "time", "revok"),
+                           "revoked_at": ("revok", "terminat", "remov", "temporary", "expir")},
+    "local_admin_membership": {"approved_member": ("approv", "authoriz", "member", "allow", "permit", "administrat",
+                                                   "admin", "privilege", "restrict", "account"),
+                               "device_id": ("device", "workstation", "endpoint", "host"),
+                               "account_id": ("account", "admin", "user"),
+                               "captured_at": ("snapshot", "time", "date")},
+    "application_control_policy": {"mode": ("mode", "allowlist", "blocklist", "monitor", "allow", "block", "deny",
+                                            "whitelist", "blacklist", "exception"),
+                                   "enforced": ("enforc", "prevent", "restrict", "control", "allow", "block", "deny",
+                                                "whitelist", "blacklist", "authorized software",
+                                                "unauthorized software", "execution", "functionality"),
+                                   "policy_id": ("policy", "rule"),
+                                   "captured_at": ("snapshot", "time", "date")},
     "password_policy_configuration": {"applies_to_privileged": ("privileged", "administrative"),
-                                     "min_length": ("length", "characters", "minimum length"),
-                                     "complexity_required": ("complexity", "character classes", "composition"),
-                                     "enforced_on_reset": ("reset", "change", "enforc"),
-                                     "rotation_period_days": ("rotat", "period", "days", "age", "frequency"),
-                                     "history_count": ("history", "previous", "reuse", "prohibit"),
-                                     "policy_id": ("policy", "rule"),
-                                     "captured_at": ("snapshot", "time", "date")},
-    "audit_forwarding_configuration": {"protocol": ("protocol", "syslog", "api", "transport"),
-                                      "enabled": ("enabl", "forward", "active", "deliver"),
-                                      "destination_id": ("destination", "target", "server", "siem"),
-                                      "last_delivery_at": ("deliver", "time", "last", "timestamp"),
+                                      "min_length": ("length", "characters", "minimum length", "complexity",
+                                                     "composition", "password"),
+                                      "complexity_required": ("complexity", "character classes", "composition",
+                                                              "character", "password"),
+                                      "enforced_on_reset": ("reset", "change", "enforc", "enforce", "complexity",
+                                                            "composition", "password"),
+                                      "rotation_period_days": ("rotat", "period", "days", "age", "frequency",
+                                                               "chang", "lifetime", "expir", "password"),
+                                      "history_count": ("history", "previous", "reuse", "prohibit", "password"),
+                                      "policy_id": ("policy", "rule"),
                                       "captured_at": ("snapshot", "time", "date")},
-    "backup_configuration": {"scheduled": ("schedul", "automated", "periodic", "frequency"),
-                            "encrypted": ("encrypt", "cryptograph", "protect"),
-                            "last_backup_status": ("status", "success", "failed", "outcome"),
-                            "backup_id": ("backup", "job"),
-                            "last_backup_at": ("last backup", "backup time", "timestamp"),
-                            "captured_at": ("snapshot", "time", "date")},
+    "audit_forwarding_configuration": {"protocol": ("protocol", "syslog", "api", "transport"),
+                                       "enabled": ("enabl", "forward", "active", "deliver", "siem", "syslog",
+                                                   "central", "transfer", "offload", "alternate", "integrat",
+                                                   "correlat", "aggregat", "repository"),
+                                       "destination_id": ("destination", "target", "server", "siem"),
+                                       "last_delivery_at": ("deliver", "time", "last", "timestamp", "transfer",
+                                                            "offload", "siem", "syslog", "central"),
+                                       "captured_at": ("snapshot", "time", "date")},
+    "backup_configuration": {"scheduled": ("schedul", "automated", "periodic", "frequency", "backup", "back up"),
+                             "encrypted": ("encrypt", "cryptograph", "protect", "backup"),
+                             "last_backup_status": ("status", "success", "failed", "outcome", "backup", "back up",
+                                                    "recover", "restore"),
+                             "backup_id": ("backup", "job"),
+                             "last_backup_at": ("last backup", "backup time", "timestamp", "backup", "back up",
+                                                "frequency"),
+                             "captured_at": ("snapshot", "time", "date")},
 }
 
 
 def is_lookup(cap: dict[str, Any], etype: str) -> bool:
     """True when the PAM holds this evidence but the collector does not send it yet (LOOKUP_AVAILABLE)."""
     return ((cap.get("evidence_detail") or {}).get(etype) or {}).get("collection_status") == "LOOKUP_AVAILABLE"
+
+
+def lookup_fields_used(cap: dict[str, Any], spec: "RuleSpec") -> list[str]:
+    """Fields the rule uses that the PAM holds but the collector does not send yet (declared lookup_fields)."""
+    held = set(((cap.get("evidence_detail") or {}).get(spec.evidence_type) or {}).get("lookup_fields") or [])
+    return sorted(_fields(spec) & held)
 
 
 def declared_version(cap: dict[str, Any], etype: str) -> str | None:
@@ -1775,6 +1867,28 @@ def _activate_and_map(db: CatalogDb, engine: Any, *, row: dict[str, Any], compil
             **({"replaced_mapping_ids": replaced} if replaced else {})}
 
 
+def _retire_generated(db: CatalogDb, rid: int, *, scope: str, tenant: str | None, actor: str, store_path: Path,
+                      reason: str) -> list[int]:
+    """Withdraw this organization's live generated mappings of a requirement that the hub no longer allows, and
+    deactivate each generated rule no other live mapping of the organization uses. Returns the withdrawn ids."""
+    withdrawn: list[int] = []
+    for m in _live_mappings(db, rid, scope):
+        if not (m["rule_id"] or "").startswith(GENERATED_RULE_PREFIX) or m["organization_scope"] != scope:
+            continue
+        if db.scalar("SELECT status FROM framework_control_mapping WHERE id=?", (m["id"],)) != "APPROVED":
+            continue
+        catalog.withdraw(db, "mapping", m["id"], actor=actor, reason=f"AUTOMATED_LLM ({POLICY_VERSION}): {reason}")
+        withdrawn.append(m["id"])
+        if tenant is not None and not _live_mappings_for_rule(db, m["rule_id"], scope):
+            with db.tx():
+                db.x("UPDATE generated_rule_version SET status='FAILED', status_reason=? WHERE organization_scope=? "
+                     "AND tenant_id=? AND rule_id=? AND status='ACTIVE'", (reason[:500], scope, tenant, m["rule_id"]))
+                db.audit(actor, "GENERATED_RULE_DEACTIVATED", "generated_rule_version", m["rule_id"],
+                         reason=reason[:500])
+            _store_deactivate(store_path, tenant, m["rule_id"], actor)
+    return withdrawn
+
+
 def _live_mappings_for_rule(db: CatalogDb, rule_id: str, scope: str) -> list[dict[str, Any]]:
     return db.q("SELECT id FROM framework_control_mapping WHERE rule_id=? AND organization_scope=? AND status IN "
                 "('DRAFT','APPROVED')", (rule_id, scope))
@@ -1809,6 +1923,9 @@ def _proposal_for(db: CatalogDb, llm: Any, req: dict[str, Any], ref: dict[str, A
     text: analyse (no grammar) then write (RuleSpec grammar, given the analysis). For identical inputs the stored
     analysis and raw output are re-checked deterministically instead of asking the model again."""
     step = step or (lambda _s: None)
+    hub_gap = control_hub.scope_gap(ref)  # deterministic, before any stored proposal is reused
+    if hub_gap:
+        return None, None, _gap("OUTSIDE_PAM_SCOPE", hub_gap, hub=control_hub.HUB_VERSION), False, None
     for row in db.q("SELECT raw_output, llm_validation FROM rule_generation_decision WHERE organization_scope=? AND "
                     "requirement_id=? ORDER BY id DESC", (scope, req["id"])):
         v = row["llm_validation"] or {}
@@ -1820,6 +1937,8 @@ def _proposal_for(db: CatalogDb, llm: Any, req: dict[str, Any], ref: dict[str, A
         if analysis and _analysis_gap(analysis):
             return None, None, _analysis_gap(analysis), False, analysis
     relevant = relevant_evidence(req, cap, ref=ref)
+    if control_hub.governed(ref):  # a hub control is offered only the evidence the matrix lists for it
+        relevant = [e for e in relevant if e in control_hub.evidence_types(ref)]
     if not relevant:
         declared = sorted((cap.get("evidence_detail") or {}))
         return None, None, _gap("COLLECTOR_MISSING", f"no declared evidence type relates to this requirement "
@@ -2020,6 +2139,9 @@ def generate(db: CatalogDb, engine: Any, llm: Any, decisions: list[dict[str, Any
                 raise Gap("RULE_PROPOSAL_AMBIGUOUS", f"confidence {proposal.confidence} is below the automation "
                           f"threshold {min_confidence()}")
             spec, dropped = drop_unused_parameters(proposal.rule_spec)
+            off_hub = control_hub.mapping_gap(ref, spec.evidence_type) if control_hub.governed(ref) else None
+            if off_hub:  # also catches a stored proposal written before the hub gate existed
+                raise Gap("OUTSIDE_PAM_SCOPE", off_hub, hub=control_hub.HUB_VERSION)
             tick(n - 1, "validate", current)
             stage_counts["validate_rule_specs"] += 1
             checks = validate(spec, req=req, cap=cap, db=db)
@@ -2080,16 +2202,19 @@ def generate(db: CatalogDb, engine: Any, llm: Any, decisions: list[dict[str, Any
                                 llm_prov={"model": model, "model_digest": model_digest,
                                           "prompt_version": PROMPT_VERSION, "proposal_key": proposal_key,
                                           "actor": me}, bundle_version=bundle_version or "")
-            if is_lookup(cap, spec.evidence_type):
+            pending = lookup_fields_used(cap, spec)
+            if is_lookup(cap, spec.evidence_type) or pending:
                 # the PAM holds this data but the collector does not send it yet: nothing to evaluate, so the rule
-                # waits; the next job after the type is declared COLLECTED activates it from the stored proposal
+                # waits; the next job after the type (or field) is declared collected activates it from the stored
+                # proposal
+                why = (f"{spec.evidence_type} (declared LOOKUP_AVAILABLE)" if is_lookup(cap, spec.evidence_type)
+                       else f"{spec.evidence_type} fields {pending} (declared lookup_fields)")
                 result = {"outcome": GENERATED_RULE_VALIDATED, "gap_code": "COLLECTOR_MISSING",
                           "rule_id": compiled["rule_id"], "rule_version": compiled["version"],
                           "generated_rule_version_id": row["id"], "waiting_for_collector": {
                               "evidence_type": spec.evidence_type,
-                              "fields": sorted(_fields(spec))},
-                          "message": f"validated, compiled and tested; waits until the collector sends "
-                                     f"{spec.evidence_type} (declared LOOKUP_AVAILABLE)"}
+                              "fields": sorted(_fields(spec)), **({"pending_fields": pending} if pending else {})},
+                          "message": f"validated, compiled and tested; waits until the collector sends {why}"}
             elif not publish:
                 result = {"outcome": GENERATED_RULE_VALIDATED, "gap_code": None, "rule_id": compiled["rule_id"],
                           "rule_version": compiled["version"], "generated_rule_version_id": row["id"],
@@ -2112,6 +2237,12 @@ def generate(db: CatalogDb, engine: Any, llm: Any, decisions: list[dict[str, Any
             result = _gap("RULE_COMPILATION_FAILED" if exc.code.startswith("RULE") else "POLICY_CONFLICT"
                           if exc.code in ("MAPPING_CONFLICT", "DUPLICATE_MAPPING") else "VALIDATION_FAILED",
                           f"{exc.code}: {exc.message}")
+        if result.get("gap_code") == "OUTSIDE_PAM_SCOPE" and result.get("hub"):
+            retired = _retire_generated(db, rid, scope=scope, tenant=tenant, actor=me,
+                                        store_path=store_path or Path("opm.db"), reason=result["message"])
+            if retired:
+                result["withdrawn_mapping_ids"] = retired
+                out.setdefault("withdrawn_mapping_ids", []).extend(retired)
         decision_input = digest_of({"proposal_key": proposal_key, "proposal": proposal_json,
                                     "values": compiled["values"] if compiled else None, "publish": publish,
                                     "pinned": pinned_digest, "compiler": COMPILER_VERSION,
@@ -2154,7 +2285,8 @@ def generate(db: CatalogDb, engine: Any, llm: Any, decisions: list[dict[str, Any
                       source_references=[{"requirement_id": rid, "section_ref": req["section_ref"],
                                           "document_version_id": req["document_version_id"]}],
                       limitations=list(proposal.rule_spec.limitations) if proposal and proposal.rule_spec else [],
-                      **{k: result[k] for k in ("replaced_mapping_ids", "parameters_missing") if k in result})
+                      **{k: result[k] for k in ("replaced_mapping_ids", "parameters_missing", "withdrawn_mapping_ids")
+                         if k in result})
         if result["outcome"] == "PUBLISHABLE":
             out["mapping_ids"].append(result["mapping_id"])
         out["decisions"].append(record)
@@ -2174,5 +2306,6 @@ def generate(db: CatalogDb, engine: Any, llm: Any, decisions: list[dict[str, Any
         "rules_generated": sum(1 for d in out["decisions"] if d.get("generated_rule_version_id")),
         "rules_activated": sum(1 for d in out["decisions"] if d["outcome"] == GENERATED_RULE_ACTIVATED),
         "generated_mappings_published": len(out["mapping_ids"]),
+        "generated_mappings_withdrawn": len(out.get("withdrawn_mapping_ids", [])),
     }
     return out

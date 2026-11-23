@@ -163,7 +163,7 @@ class FileDropAdapter(SourceAdapter):
 
     adapter_type = "file_drop"
     discovery_methods = ("file_drop",)
-    supported_formats = ("html", "txt", "pdf")
+    supported_formats = ("html", "txt", "pdf", "json")
     requires_network = False
 
     def validate_config(self) -> None:

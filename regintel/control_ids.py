@@ -73,7 +73,8 @@ class VersionIndex:
             return {"canonical_id": None, "method": METHOD, "status": "QUOTE_NOT_LOCATED"}
         bi = bisect_right(self._base_pos, pos) - 1
         if bi < 0:
-            return {"canonical_id": None, "method": METHOD, "status": "NO_CONTROL_HEADING_BEFORE_PASSAGE"}
+            return {"canonical_id": None, "method": METHOD, "status": "NO_CONTROL_HEADING_BEFORE_PASSAGE",
+                    "control_headings_in_version": len(self.base)}
         b_start, b_end, control_id, title = self.base[bi]
         enhancement, enh_title, head_end = None, None, b_end
         ei = bisect_right(self._enh_pos, pos) - 1

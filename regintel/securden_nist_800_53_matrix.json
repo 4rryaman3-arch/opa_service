@@ -827,6 +827,170 @@
         "value": true,
         "rationale": "Continuous monitoring and cryptographic integrity verification are active across the reporting window."
       }
+    },
+    {
+      "control_id": "AC-6(10)",
+      "title": "Prohibit Non-privileged Users from Executing Privileged Functions",
+      "requirement_summary": "Prevent non-privileged users from executing privileged functions.",
+      "securden_capability": "Endpoint Privilege Manager removes standing admin rights; elevated execution needs an approved, time-limited elevation.",
+      "pam_models": [],
+      "evidence_type": "endpoint_elevation",
+      "pam_control_id": "PAMC-ENDPOINT-ELEVATION",
+      "recommended_test": {
+        "field": "approval_status",
+        "operator": "in",
+        "value": ["APPROVED", "AUTO_APPROVED"],
+        "rationale": "Elevated execution on endpoints happens only after an approved elevation request."
+      },
+      "source": "Securden published product documentation (product tour, session management, approval workflow / JIT, security design, Endpoint Privilege Manager pages), read 2026-11-20. Vendor claim, not yet confirmed against the PAM's database."
+    },
+    {
+      "control_id": "CM-11",
+      "title": "User-installed Software",
+      "requirement_summary": "Enforce policies governing installation of software by users.",
+      "securden_capability": "Endpoint Privilege Manager routes application installs and elevated runs through an approval workflow.",
+      "pam_models": [],
+      "evidence_type": "endpoint_elevation",
+      "pam_control_id": "PAMC-ENDPOINT-ELEVATION",
+      "recommended_test": {
+        "field": "approval_status",
+        "operator": "in",
+        "value": ["APPROVED", "AUTO_APPROVED"],
+        "rationale": "User-installed software runs elevated only after approval."
+      },
+      "source": "Securden published product documentation (product tour, session management, approval workflow / JIT, security design, Endpoint Privilege Manager pages), read 2026-11-20. Vendor claim, not yet confirmed against the PAM's database."
+    },
+    {
+      "control_id": "AC-6(5)",
+      "title": "Privileged Accounts",
+      "requirement_summary": "Restrict privileged accounts to defined personnel or roles.",
+      "securden_capability": "Endpoint Privilege Manager discovers local administrator accounts and removes unapproved ones.",
+      "pam_models": [],
+      "evidence_type": "local_admin_membership",
+      "pam_control_id": "PAMC-LOCAL-ADMIN",
+      "recommended_test": {
+        "field": "approved_member",
+        "operator": "equals",
+        "value": true,
+        "rationale": "Only approved accounts hold local administrator rights."
+      },
+      "source": "Securden published product documentation (product tour, session management, approval workflow / JIT, security design, Endpoint Privilege Manager pages), read 2026-11-20. Vendor claim, not yet confirmed against the PAM's database."
+    },
+    {
+      "control_id": "CM-7(5)",
+      "title": "Authorized Software - Allow-by-exception",
+      "requirement_summary": "Identify authorized software and deny execution of all other software.",
+      "securden_capability": "Endpoint Privilege Manager enforces application allowlists per user, group and device.",
+      "pam_models": [],
+      "evidence_type": "application_control_policy",
+      "pam_control_id": "PAMC-APP-CONTROL",
+      "recommended_test": {
+        "population_filter": {"field": "mode", "operator": "equals", "value": "ALLOWLIST"},
+        "field": "enforced",
+        "operator": "equals",
+        "value": true,
+        "rationale": "Allowlist application control policies are enforced."
+      },
+      "source": "Securden published product documentation (product tour, session management, approval workflow / JIT, security design, Endpoint Privilege Manager pages), read 2026-11-20. Vendor claim, not yet confirmed against the PAM's database."
+    },
+    {
+      "control_id": "CM-7(4)",
+      "title": "Unauthorized Software - Deny-by-exception",
+      "requirement_summary": "Identify unauthorized software and block its execution.",
+      "securden_capability": "Endpoint Privilege Manager enforces application blocklists per user, group and device.",
+      "pam_models": [],
+      "evidence_type": "application_control_policy",
+      "pam_control_id": "PAMC-APP-CONTROL",
+      "recommended_test": {
+        "population_filter": {"field": "mode", "operator": "equals", "value": "BLOCKLIST"},
+        "field": "enforced",
+        "operator": "equals",
+        "value": true,
+        "rationale": "Blocklist application control policies are enforced."
+      },
+      "source": "Securden published product documentation (product tour, session management, approval workflow / JIT, security design, Endpoint Privilege Manager pages), read 2026-11-20. Vendor claim, not yet confirmed against the PAM's database."
+    },
+    {
+      "control_id": "IA-5(1)",
+      "title": "Password-based Authentication",
+      "requirement_summary": "Enforce password composition, lifetime and reuse requirements.",
+      "securden_capability": "Securden password policies set length, complexity and reset periodicity per account type, enforced on creation and reset.",
+      "pam_models": [],
+      "evidence_type": "password_policy_configuration",
+      "pam_control_id": "PAMC-PASSWORD-POLICY",
+      "recommended_test": {
+        "population_filter": {"field": "applies_to_privileged", "operator": "equals", "value": true},
+        "field": "enforced_on_reset",
+        "operator": "equals",
+        "value": true,
+        "rationale": "Password policies for privileged accounts are enforced when passwords are set."
+      },
+      "aliases": ["IA-5(1) a", "IA-5(1) c", "IA-5(1) d"],
+      "source": "Securden published product documentation (product tour, session management, approval workflow / JIT, security design, Endpoint Privilege Manager pages), read 2026-11-20. Vendor claim, not yet confirmed against the PAM's database."
+    },
+    {
+      "control_id": "AU-6(4)",
+      "title": "Central Review and Analysis",
+      "requirement_summary": "Centrally review and analyze audit records from multiple components.",
+      "securden_capability": "Securden forwards audit events by syslog to SIEM tools (e.g. Splunk, Fortinet, LogRhythm).",
+      "pam_models": [],
+      "evidence_type": "audit_forwarding_configuration",
+      "pam_control_id": "PAMC-AUDIT-FORWARDING",
+      "recommended_test": {
+        "field": "enabled",
+        "operator": "equals",
+        "value": true,
+        "rationale": "Audit forwarding to the central SIEM is enabled."
+      },
+      "source": "Securden published product documentation (product tour, session management, approval workflow / JIT, security design, Endpoint Privilege Manager pages), read 2026-11-20. Vendor claim, not yet confirmed against the PAM's database."
+    },
+    {
+      "control_id": "AU-4(1)",
+      "title": "Transfer to Alternate Storage",
+      "requirement_summary": "Transfer audit logs to a different system or storage.",
+      "securden_capability": "Securden sends audit events to an external syslog / SIEM destination.",
+      "pam_models": [],
+      "evidence_type": "audit_forwarding_configuration",
+      "pam_control_id": "PAMC-AUDIT-FORWARDING",
+      "recommended_test": {
+        "field": "enabled",
+        "operator": "equals",
+        "value": true,
+        "rationale": "Audit records are transferred off the PAM to an external destination."
+      },
+      "source": "Securden published product documentation (product tour, session management, approval workflow / JIT, security design, Endpoint Privilege Manager pages), read 2026-11-20. Vendor claim, not yet confirmed against the PAM's database."
+    },
+    {
+      "control_id": "CP-9(8)",
+      "title": "Cryptographic Protection",
+      "requirement_summary": "Protect backup information with cryptographic mechanisms.",
+      "securden_capability": "Securden backups are encrypted and cannot be restored without the master key; periodic backups can be scheduled.",
+      "pam_models": [],
+      "evidence_type": "backup_configuration",
+      "pam_control_id": "PAMC-BACKUP",
+      "recommended_test": {
+        "field": "encrypted",
+        "operator": "equals",
+        "value": true,
+        "rationale": "PAM backups are encrypted."
+      },
+      "source": "Securden published product documentation (product tour, session management, approval workflow / JIT, security design, Endpoint Privilege Manager pages), read 2026-11-20. Vendor claim, not yet confirmed against the PAM's database."
+    },
+    {
+      "control_id": "AU-14(3)",
+      "title": "Remotely View and Listen to Content",
+      "requirement_summary": "Provide authorized personnel the ability to view session content in real time.",
+      "securden_capability": "Securden lets administrators shadow privileged remote sessions live and terminate them.",
+      "pam_models": [],
+      "evidence_type": "privileged_session",
+      "pam_control_id": "PAMC-SESSION-MONITORING",
+      "recommended_test": {
+        "field": "shadowed",
+        "operator": "equals",
+        "value": true,
+        "rationale": "Privileged sessions are monitored live."
+      },
+      "source": "Securden published product documentation (product tour, session management, approval workflow / JIT, security design, Endpoint Privilege Manager pages), read 2026-11-20. Vendor claim, not yet confirmed against the PAM's database."
     }
   ]
 }

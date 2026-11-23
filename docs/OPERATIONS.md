@@ -21,6 +21,13 @@ Set-Location D:\personal_projects\opa_sevice
 - `--with-ollama` reuses a running Ollama or starts the installed one. It checks for a real structured-JSON response
   and GPU placement before starting anything else, and it never downloads models. Without the flag, the
   evaluation API works and only catalog extraction needs the model.
+- **Hosted model (opt-in).** `OPM_REGINTEL_LLM_PROVIDER=azure_openai` with `OPM_REGINTEL_ALLOW_HOSTED_LLM=1`,
+  `OPM_REGINTEL_AZURE_ENDPOINT` (resource or Foundry project URL), `OPM_REGINTEL_AZURE_DEPLOYMENT` and
+  `AZURE_OPENAI_API_KEY` replaces Ollama for extraction, mapping and rule generation (OpenAI v1 chat completions,
+  `api-key` header, JSON-schema output, 429/5xx retried). Start without `--with-ollama`;
+  `python -m regintel llm-check` verifies the deployment. Requirement text and uploaded documents then leave the
+  machine: do not process material whose licence forbids AI or third-party processing. Stored model decisions
+  are keyed by model, so the first run on the hosted model asks again instead of reusing local-model answers.
 - `--with-catalog-admin` is needed for every `/api/v1/catalog/admin/*` call. Without it the edge answers 502.
 - There is no hot reload. **Restart after every code or credential change.** Ctrl+C stops the processes the
   launcher started.

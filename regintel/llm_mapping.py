@@ -152,6 +152,40 @@ def _norm(t: str | None) -> str:
     return re.sub(r"\s+", " ", (t or "").replace("’", "'")).strip().lower()
 
 
+# Vetted rule per evidence type, used for controls the Securden NIST matrix (control hub) covers but
+# SEMANTIC_CANDIDATES does not list (NIST run 2026-11-20: 251 of 295 requirements had no candidate, so AC-2(3),
+# AC-12, AC-2(2) ... went to generation although a vetted rule tests exactly the matrix's recommended evidence).
+# privileged_session has two rules; the matrix entry's recommended test field picks one.
+VETTED_BY_EVIDENCE: dict[str, tuple[str, ...]] = {
+    "credential_rotation": ("PAM-ROTATION-001",), "privileged_access_request": ("PAM-APPROVAL-001",),
+    "privileged_account": ("PAM-DORMANT-001",), "authentication_summary": ("PAM-AUTHFAIL-001",),
+    "access_authorization": ("PAM-UNAUTH-001",), "break_glass_event": ("PAM-BREAKGLASS-001",),
+    "policy_exception": ("PAM-EXCEPTION-001",), "access_review": ("PAM-REVIEW-001",),
+    "audit_log_coverage": ("PAM-AUDITCOMP-001",), "mfa_configuration": ("PAM-MFACFG-001",),
+    "privileged_access_authentication": ("PAM-MFAACC-001",), "session_policy_configuration": ("PAM-SESSIDLE-001",),
+}
+_SESSION_BY_FIELD = {"recording_status": "PAM-SESSREC-001", "recording_required": "PAM-SESSREC-001",
+                     "recording_reference": "PAM-SESSREC-001", "ended_at": "PAM-SESSDUR-001",
+                     "started_at": "PAM-SESSDUR-001"}
+MATRIX_CANDIDATES_VERSION = "matrix-candidates-v1"
+
+
+def matrix_candidates(ref: dict[str, Any]) -> list[str]:
+    """Vetted rules for the evidence the Securden matrix lists for this exact control (or clause/enhancement)."""
+    from . import control_hub
+
+    out: list[str] = []
+    for e in control_hub.entries_for(ref):
+        et = e.get("evidence_type")
+        if et == "privileged_session":
+            rule = _SESSION_BY_FIELD.get((e.get("recommended_test") or {}).get("field"))
+            rules = (rule,) if rule else ()
+        else:
+            rules = VETTED_BY_EVIDENCE.get(et, ())
+        out.extend(r for r in rules if r not in out)
+    return out
+
+
 def candidates_for(ref: dict[str, Any], text: str) -> list[str]:
     if ref.get("status") == "DERIVED" and ref.get("canonical_id"):
         cid, clause, base = ref["canonical_id"], ref.get("clause"), ref.get("control_id")
@@ -162,6 +196,9 @@ def candidates_for(ref: dict[str, Any], text: str) -> list[str]:
             if cl is None and (key == cid or (key.endswith("(*)") and cid.startswith(key[:-3] + "(")
                                               and base == key[:-3])):
                 return list(rules)
+        # statement text of a hub control only (never discussion or front matter); the model still judges the fit
+        if ref.get("location") in (None, "CONTROL_STATEMENT"):
+            return matrix_candidates(ref)
         return []
     return sorted({rule for _n, rule, _p in mp.topics(text) if rule})
 

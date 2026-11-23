@@ -21,9 +21,13 @@
       "meaning": "UTC timestamp when the credential rotation snapshot was captured.",
       "shows": "Snapshot timestamp used as reporting period anchor when last_rotated_at is null (NIST IA-5, IA-5(1))."
     },
+    "breached": {
+      "meaning": "Securden's breached-password check found this credential in known breach data.",
+      "shows": "Whether a credential is known to be compromised and must be changed."
+    },
     "policy_compliant": {
-      "meaning": "Whether the credential conforms to the organization's active password policy configuration.",
-      "shows": "Compliance with complexity, length, and rotation requirements (NIST IA-5 c, IA-5 h)."
+      "meaning": "Whether the credential conforms to the active password policy assigned to its account type.",
+      "shows": "Compliance with password composition, strength, length, and rotation requirements (NIST IA-5 c, IA-5 h)."
     }
   },
   "privileged_account": {
@@ -92,6 +96,14 @@
     "shadowed": {
       "meaning": "Whether the privileged session was joined, observed, or shadowed in real time by an authorized administrator.",
       "shows": "Real-time supervisory session shadowing or dual-control monitoring (NIST AU-14(3))."
+    },
+    "terminated_by_admin": {
+      "meaning": "An administrator ended this session before the user did.",
+      "shows": "That the organization can and did stop a privileged session."
+    },
+    "credential_disclosed": {
+      "meaning": "The account password was shown to the user; false when Securden injected it without disclosure.",
+      "shows": "Protection of privileged authenticators from disclosure."
     }
   },
   "privileged_access_request": {
@@ -142,6 +154,26 @@
     "credential_reset_after_use": {
       "meaning": "Whether the credential checked out under this request was reset after completion.",
       "shows": "Enforcement of post-use credential revocation or password change (NIST IA-5(1), SC-12)."
+    },
+    "ticket_reference": {
+      "meaning": "The ITSM ticket (e.g. ServiceNow, Zendesk, Freshservice) the request was validated against.",
+      "shows": "Access tied to an approved change or service ticket."
+    },
+    "justification_provided": {
+      "meaning": "The requester gave a business justification.",
+      "shows": "Documented need for privileged access."
+    },
+    "auto_approved": {
+      "meaning": "The request was approved by an automatic-approval policy, not a person.",
+      "shows": "Whether a human approver authorized the access."
+    },
+    "access_expires_at": {
+      "meaning": "End of the just-in-time access window.",
+      "shows": "Time-bound privileged access."
+    },
+    "revoked_at": {
+      "meaning": "When access was actually taken away.",
+      "shows": "Automatic removal of temporary access at the end of the window."
     }
   },
   "access_authorization": {

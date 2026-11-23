@@ -88,6 +88,8 @@ def main() -> int:
     base = dict(os.environ)
     # OPM_* settings plus the rule-generation flags (REGINTEL_AUTO_*, DJANGO_CONTRACT.md §5.4)
     passthrough = {k: v for k, v in cfg.items() if k.startswith(("OPM_", "REGINTEL_AUTO_")) and v}
+    # the hosted-model key (OPM_REGINTEL_LLM_PROVIDER=azure_openai) goes only to the catalog worker that calls it
+    llm_secret = {k: cfg[k] for k in ("AZURE_OPENAI_API_KEY",) if cfg.get(k)}
 
     # Active policy bundle: bundle-store/ACTIVE (written by `python -m regintel bundle-activate`)
     # names an immutable, tested bundle version; without it the base bundle is used.
@@ -122,7 +124,7 @@ def main() -> int:
         specs.insert(-1, ("catalog-admin", [sys.executable, "-m", "uvicorn", "regintel.admin_api:app_factory",
             "--factory", "--host", "127.0.0.1", "--port", str(args.catalog_admin_port),
             "--no-server-header", "--no-access-log"],
-            {**passthrough, "OPM_CATALOG_DB_PATH": str(ROOT / "data/regintel/catalog.db"),
+            {**passthrough, **llm_secret, "OPM_CATALOG_DB_PATH": str(ROOT / "data/regintel/catalog.db"),
              "OPM_POLICY_BUNDLE_DIR": str(ROOT / bundle_rel),
              # the evaluator's tenant rule store: activated generated rules (PAM-GEN-*) are written here
              "OPM_DB_PATH": str(ROOT / "data" / "opm.db"),
