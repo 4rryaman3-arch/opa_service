@@ -32,10 +32,10 @@
         "accountmanagement.SSHKeyRotationHistory",
         "accountmanagement.PasswordPolicy",
         "accountmanagement.AccountPolicyMap",
-        "accountmanagement.DomainConfiguration",
-        "accountmanagement.FileStoreMap",
-        "pam.AsymmetricKeys",
-        "pam.SecurityKeys"
+        "accountmanagement.DomainLandingServerMapping",
+        "accountmanagement.AccountFileContent",
+        "accountmanagement.SSHKeyAccount",
+        "pam.AppServerConfigurationKeys"
       ],
       "caveats": [
         "Covers NIST IA-5, IA-5(1), IA-5(2), IA-5(6), IA-5(7), SC-12, SC-13, SC-17, SC-28 credential rotation, password policy enforcement, SSH/PKI key rotation, and AES-256 encrypted credential storage.",
@@ -90,11 +90,10 @@
       "source_models": [
         "accountmanagement.Accounts",
         "accountmanagement.AccountPolicyMap",
-        "accountmanagement.AccountCategory",
         "accountmanagement.AccountTypes",
-        "accountmanagement.SSHKeys",
-        "discovery.DiscoverySchedule",
-        "usermanagement.ADImportSchedule"
+        "accountmanagement.SSHKeyAccount",
+        "accountmanagement.DiscoverAccountsSchedule",
+        "pam.ADAccountGroupSyncSchedule"
       ],
       "caveats": [
         "Covers NIST AC-2, AC-2(1), AC-2(2), AC-2(3), AC-6, IA-4, CM-8 privileged account inventory, automated discovery, active/disabled status, and dormant account tracking.",
@@ -156,9 +155,9 @@
         "audit.AccountActiveRemoteSession",
         "audit.RecordedSessionActivity",
         "audit.AccountActiveRemoteSessionShadowControl",
-        "pam.LauncherComponentSettings",
-        "pam.WebSessionServerSettings",
-        "pam.GatewayServer"
+        "guacamoleapp.GuacamoleAppServerConfiguration",
+        "accountmanagement.SessionManagerLandingServerMapping",
+        "accountmanagement.LandingServer"
       ],
       "caveats": [
         "Covers NIST AC-17, AC-17(1), AC-17(2), AC-17(3), AC-17(4), AU-14, SC-7, SC-8 brokered remote sessions, session recording, live shadowing, and session termination.",
@@ -240,7 +239,7 @@
       "source_models": [
         "accountmanagement.AccountAdminPrivilegeRequest",
         "accountmanagement.TechnicianAccessRequest",
-        "accountmanagement.TicketSystem"
+        "accountmanagement.AccountTicketingSystemEnabled"
       ],
       "caveats": [
         "Covers NIST AC-2, AC-2(4), AC-6, AC-6(1), AC-6(2), CM-3, CM-5, MA-4 request-release approval workflows, Just-in-Time privilege elevation, and ITSM ticket-validated access.",
@@ -321,8 +320,8 @@
         "accountmanagement.AccountGroups",
         "accountmanagement.FolderAccountUsers",
         "accountmanagement.FolderUsers",
-        "usermanagement.CustomRole",
-        "usermanagement.CustomRolePermissions",
+        "authorization.Roles",
+        "authorization.RoleFeatures",
         "audit.AccountActivity"
       ],
       "caveats": [
@@ -382,7 +381,7 @@
       "source_models": [
         "usermanagement.UserProfileAddInfo",
         "audit.UserActivity",
-        "pam.TFA_Details"
+        "usermanagement.MFA"
       ],
       "caveats": [
         "Covers NIST AC-7 consecutive invalid logon attempt tracking and automatic account lockout enforcement."
@@ -498,7 +497,7 @@
         "iga.SODException",
         "iga.SODPolicy",
         "iga.SODViolation",
-        "compliance_management.CompliancePolicyRuleOverride"
+        "compliance_management.ComplianceRule"
       ],
       "caveats": [
         "Covers NIST AC-5, CA-5, CA-7, PM-9 Separation of Duties (SoD) exceptions, risk acceptance waivers, approval timestamps, and expiration enforcement."
@@ -553,7 +552,7 @@
         "iga.CertificationItem",
         "iga.CertificationReviewTask",
         "iga.SODPolicy",
-        "iga.SODRule",
+        "iga.SODPolicyRole",
         "iga.SODViolation"
       ],
       "caveats": [
@@ -612,8 +611,8 @@
         "audit.UserActivity",
         "audit.AccountActivity",
         "audit.RecordedSessionActivity",
-        "pam.SyslogConfig",
-        "pam.LiveDBBackupStatus"
+        "pam.SyslogServer",
+        "pam.BackupSchedule"
       ],
       "caveats": [
         "Covers NIST AU-4, AU-5, AU-6, AU-9, AU-11, AU-12, SI-4 continuous audit trail collection, SIEM/Syslog export continuity, gap monitoring, and tamper-evident log integrity verification."
@@ -670,9 +669,7 @@
       ],
       "source_models": [
         "audit.UserActivity",
-        "audit.AccountActivity",
-        "audit.EmailEventTask",
-        "audit.ScheduledEventTask"
+        "audit.AccountActivity"
       ],
       "caveats": [
         "Covers NIST AU-2, AU-3, AU-3(1), AU-7, AU-8, AU-12, AC-6(9) structured audit records capturing event type, UTC timestamp, component location, origin IP/source, outcome, actor user ID, and target object ID."
@@ -735,8 +732,7 @@
         "usermanagement.UserMFAConfig",
         "usermanagement.UserMFAMap",
         "usermanagement.GroupMFAMap",
-        "pam.TFA_Details",
-        "pam.RADIUSConfiguration"
+        "pam.RadiusServer"
       ],
       "caveats": [
         "Covers NIST IA-2, IA-2(1), IA-2(2), IA-2(8), IA-2(12) multi-factor authentication enforcement and enrolled MFA factors across privileged and non-privileged users."
@@ -795,7 +791,7 @@
         "audit.AccountActivity",
         "usermanagement.MFA",
         "usermanagement.UserMFAConfig",
-        "usermanagement.UserSSOConfig"
+        "pam.SamlSSO"
       ],
       "caveats": [
         "Covers NIST IA-2, IA-2(1), IA-2(2), IA-5, IA-8, AC-17 per-access multi-factor authentication verification prior to granting privileged account or remote session access."
@@ -849,8 +845,8 @@
       ],
       "source_models": [
         "pam.Configurations",
-        "pam.LauncherComponentSettings",
-        "pam.WebSessionServerSettings"
+        "guacamoleapp.GuacamoleAppServerConfiguration",
+        "accountmanagement.SessionManagerLandingServerMapping"
       ],
       "caveats": [
         "Covers NIST AC-11, AC-12, SC-10 session lock, idle session timeout enforcement, and automatic termination of inactive privileged sessions."
@@ -900,7 +896,7 @@
         "revoked_at"
       ],
       "source_models": [
-        "endpoint.EndpointElevation",
+        "configuration.WindowsApplicationElevationAudit",
         "accountmanagement.AccountAdminPrivilegeRequest"
       ],
       "caveats": [
@@ -966,7 +962,7 @@
         "captured_at"
       ],
       "source_models": [
-        "endpoint.LocalAdminMembership",
+        "accountmanagement.AccountUsers",
         "accountmanagement.Accounts"
       ],
       "caveats": [
@@ -1008,7 +1004,7 @@
         "captured_at"
       ],
       "source_models": [
-        "security.ApplicationControlPolicy",
+        "accountmanagement.RemoteSSHAuthentication",
         "pam.Configurations"
       ],
       "caveats": [
@@ -1113,7 +1109,7 @@
         "captured_at"
       ],
       "source_models": [
-        "pam.SyslogConfig",
+        "pam.SyslogServer",
         "audit.UserActivity"
       ],
       "caveats": [
@@ -1161,7 +1157,7 @@
         "captured_at"
       ],
       "source_models": [
-        "backup.BackupConfiguration",
+        "pam.BackupSchedule",
         "pam.Configurations"
       ],
       "caveats": [
@@ -1212,7 +1208,7 @@
     "max_exception_duration_days": "iga.SODException.valid_until",
     "max_review_interval_days": "iga.CertificationCampaign.end_date",
     "max_gap_seconds": "audit.UserActivity / audit.AccountActivity",
-    "require_integrity_verified": "pam.SyslogConfig / audit.UserActivity",
+    "require_integrity_verified": "pam.SyslogServer / audit.UserActivity",
     "require_mfa": "usermanagement.UserMFAConfig.is_enabled",
     "max_idle_timeout_minutes": "pam.Configurations(key=IDLE_SESSION_TIMEOUT)"
   }

@@ -134,6 +134,7 @@ class PamVectorDatabase:
     def capabilities(self) -> list[dict[str, Any]]:
         result = []
         for row in self.connection.execute("SELECT * FROM capability ORDER BY evidence_type"):
+            cols = row.keys()
             result.append({
                 "evidence_type": row["evidence_type"],
                 "schema_version": row["schema_version"],
@@ -144,9 +145,46 @@ class PamVectorDatabase:
                 "source_models": _loads(row["source_models_json"], []),
                 "caveats": _loads(row["caveats_json"], []),
                 "field_meanings": _loads(row["field_meanings_json"], {}),
+                "feature": row["feature"] if "feature" in cols else "",
+                "scope": row["scope"] if "scope" in cols else "",
+                "limitation": row["limitation"] if "limitation" in cols else "",
+                "remediation": row["remediation"] if "remediation" in cols else "",
                 "digest": row["content_digest"],
             })
         return result
+
+    def setting_sources(self) -> dict[str, str]:
+        """Return the dictionary of compliance parameter to PAM model settings sources."""
+        try:
+            return {row["setting_key"]: row["source_expression"]
+                    for row in self.connection.execute("SELECT setting_key, source_expression FROM setting_source ORDER BY setting_key")}
+        except sqlite3.OperationalError:
+            return _loads(self.metadata().get("settings_sources_json"), {})
+
+    def framework_controls(self, evidence_type: str | None = None) -> list[dict[str, Any]]:
+        """Return regulatory framework controls (e.g. NIST SP 800-53) mapped to capabilities."""
+        try:
+            sql = "SELECT * FROM framework_control"
+            params: tuple[Any, ...] = ()
+            if evidence_type is not None:
+                sql += " WHERE evidence_type=?"
+                params = (evidence_type,)
+            sql += " ORDER BY control_id"
+            rows = self.connection.execute(sql, params).fetchall()
+            return [{
+                "control_id": row["control_id"],
+                "framework_id": row["framework_id"],
+                "title": row["title"],
+                "requirement_summary": row["requirement_summary"],
+                "securden_capability": row["securden_capability"],
+                "evidence_type": row["evidence_type"],
+                "pam_control_id": row["pam_control_id"],
+                "pam_models": _loads(row["pam_models_json"], []),
+                "recommended_test": _loads(row["recommended_test_json"], {}),
+                "digest": row["content_digest"],
+            } for row in rows]
+        except sqlite3.OperationalError:
+            return []
 
     def to_collector_handshake(self, collected_only: bool = True) -> list[dict[str, Any]]:
         """Extract evidence capability declarations formatted for the OPM collector handshake."""
