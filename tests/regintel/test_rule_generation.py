@@ -775,3 +775,26 @@ def test_generated_cases_cover_boundaries_against_real_opa():
     for cond in broken["violation"]["conditions"]:
         cond["op"] = {"ne": "eq", "gt": "lte"}.get(cond["op"], cond["op"])
     assert not all(r["passed"] for r in gr.run_cases(c["definition"], broken, cases, bundle_dir=bundle))
+
+
+def test_vector_db_interprets_and_drives_collector_capabilities(tmp_path):
+    from regintel.pam_vector_db import PamVectorDatabase, generate_test_vectors, validate_test_vectors
+    from .test_pam_vector_db import fixture_db
+    db_path = fixture_db(tmp_path)
+    with PamVectorDatabase(db_path) as database:
+        # 1. Interprets metadata, models, and constants
+        context = database.capability_context("password_policy_configuration")
+        assert context["collection_status"] == "COLLECTED"
+        assert context["model_context"][0]["present"] is True
+
+        # 2. Generates and validates deterministic schema test vectors
+        vectors = generate_test_vectors(database)
+        validation = validate_test_vectors(vectors)
+        assert validation["failed"] == 0
+        assert validation["passed"] > 0
+
+        # 3. Formats capabilities for OPM collector handshake
+        handshake = database.to_collector_handshake()
+        assert len(handshake) == 1
+        assert handshake[0]["evidence_type"] == "password_policy_configuration"
+        assert "min_length" in handshake[0]["supported_fields"]
