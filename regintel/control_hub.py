@@ -13,6 +13,8 @@ Documents without catalog control headings (regulations, organization policies) 
 from __future__ import annotations
 
 import json
+import os
+import sqlite3
 from functools import lru_cache
 from pathlib import Path
 from typing import Any
@@ -23,6 +25,40 @@ _MATRIX_FILE = Path(__file__).resolve().parent / "securden_nist_800_53_matrix.js
 
 @lru_cache(maxsize=1)
 def entries() -> tuple[dict[str, Any], ...]:
+    # 1. Prefer live vector.db framework_control table if available
+    db_candidates = [
+        os.environ.get("OPM_REGINTEL_VECTOR_DB"),
+        Path(__file__).resolve().parents[1] / "data" / "vector.db",
+        Path(__file__).resolve().parents[1] / "vector.db",
+        Path(r"D:\products\master-split\opa_service\data\vector.db"),
+    ]
+    for db_path in db_candidates:
+        if db_path and Path(db_path).is_file():
+            try:
+                uri = f"file:{Path(db_path).as_posix()}?mode=ro&immutable=1"
+                with sqlite3.connect(uri, uri=True) as conn:
+                    conn.row_factory = sqlite3.Row
+                    cols = {c[1] for c in conn.execute("PRAGMA table_info(framework_control)").fetchall()}
+                    rows = conn.execute("SELECT * FROM framework_control ORDER BY id").fetchall()
+                    if rows:
+                        out = []
+                        for r in rows:
+                            aliases = json.loads(r["aliases_json"]) if "aliases_json" in cols and r["aliases_json"] else []
+                            item = {
+                                "control_id": r["control_id"],
+                                "title": r["title"],
+                                "requirement_summary": r["requirement_summary"],
+                                "securden_capability": r["securden_capability"],
+                                "evidence_type": r["evidence_type"],
+                                "pam_control_id": r["pam_control_id"],
+                                "aliases": aliases,
+                                "pam_models": json.loads(r["pam_models_json"]) if r["pam_models_json"] else [],
+                                "recommended_test": json.loads(r["recommended_test_json"]) if r["recommended_test_json"] else {},
+                            }
+                            out.append(item)
+                        return tuple(out)
+            except Exception:
+                pass
     if not _MATRIX_FILE.is_file():
         return ()
     return tuple(json.loads(_MATRIX_FILE.read_text(encoding="utf-8")).get("controls", []))

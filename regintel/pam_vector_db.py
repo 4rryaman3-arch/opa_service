@@ -181,12 +181,38 @@ class PamVectorDatabase:
                 "securden_capability": row["securden_capability"],
                 "evidence_type": row["evidence_type"],
                 "pam_control_id": row["pam_control_id"],
+                "aliases": _loads(row["aliases_json"], []) if "aliases_json" in row.keys() else [],
                 "pam_models": _loads(row["pam_models_json"], []),
                 "recommended_test": _loads(row["recommended_test_json"], {}),
                 "digest": row["content_digest"],
             } for row in rows]
         except sqlite3.OperationalError:
             return []
+
+    def is_in_scope(self, control_id: str) -> bool:
+        """Check if a framework control is within PAM scope according to vector.db."""
+        try:
+            cid = control_id.strip().upper()
+            row = self.connection.execute(
+                "SELECT 1 FROM framework_control WHERE upper(control_id)=? "
+                "OR aliases_json LIKE ?", (cid, f'%"{cid}"%')
+            ).fetchone()
+            return row is not None
+        except sqlite3.OperationalError:
+            return False
+
+    def scope_summary(self) -> dict[str, Any]:
+        """Summary of in-scope capabilities, evidence types, and controls."""
+        caps = self.capabilities()
+        ctrls = self.framework_controls()
+        return {
+            "capabilities_count": len(caps),
+            "collected_capabilities": [c["evidence_type"] for c in caps if c["collection_status"] == "COLLECTED"],
+            "lookup_capabilities": [c["evidence_type"] for c in caps if c["collection_status"] == "LOOKUP_AVAILABLE"],
+            "framework_controls_count": len(ctrls),
+            "in_scope_controls": sorted({c["control_id"] for c in ctrls}),
+            "families": sorted({c["control_id"].split("-")[0] for c in ctrls if "-" in c["control_id"]}),
+        }
 
     def to_collector_handshake(self, collected_only: bool = True) -> list[dict[str, Any]]:
         """Extract evidence capability declarations formatted for the OPM collector handshake."""

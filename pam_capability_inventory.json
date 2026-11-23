@@ -877,7 +877,7 @@
     {
       "evidence_type": "endpoint_elevation",
       "schema_version": "1.0",
-      "collection_status": "LOOKUP_AVAILABLE",
+      "collection_status": "COLLECTED",
       "assessment_modes": [
         "EVENT_HISTORY"
       ],
@@ -949,7 +949,7 @@
     {
       "evidence_type": "local_admin_membership",
       "schema_version": "1.0",
-      "collection_status": "LOOKUP_AVAILABLE",
+      "collection_status": "COLLECTED",
       "assessment_modes": [
         "CONFIGURATION_SNAPSHOT"
       ],
@@ -991,7 +991,7 @@
     {
       "evidence_type": "application_control_policy",
       "schema_version": "1.0",
-      "collection_status": "LOOKUP_AVAILABLE",
+      "collection_status": "COLLECTED",
       "assessment_modes": [
         "CONFIGURATION_SNAPSHOT"
       ],
@@ -1142,7 +1142,7 @@
     {
       "evidence_type": "backup_configuration",
       "schema_version": "1.0",
-      "collection_status": "LOOKUP_AVAILABLE",
+      "collection_status": "COLLECTED",
       "assessment_modes": [
         "CONFIGURATION_SNAPSHOT"
       ],
