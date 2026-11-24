@@ -385,11 +385,17 @@ def generate_test_vectors(database: PamVectorDatabase) -> dict[str, Any]:
              "expected": "REJECT"},
         ]
         model = EVIDENCE_MODELS[evidence_type]
+        catalogue = CUSTOM_RULE_FIELDS.get(evidence_type, {})
         for field in sorted(declared):
             model_field = model.model_fields.get(field)
             if model_field is not None and model_field.is_required():
                 cases.append({"name": f"reject_missing_required_{field}",
                               "record": {key: value for key, value in record.items() if key != field},
+                              "expected": "REJECT"})
+            field_spec = catalogue.get(field, {})
+            if field_spec.get("type") == "enum" and field in record and record[field] is not None:
+                cases.append({"name": f"reject_invalid_enum_{field}",
+                              "record": {**record, field: "INVALID_ENUM_VALUE_X"},
                               "expected": "REJECT"})
         total_cases += len(cases)
         context = database.capability_context(evidence_type)
@@ -403,12 +409,25 @@ def generate_test_vectors(database: PamVectorDatabase) -> dict[str, Any]:
             "source_models": context["model_context"],
             "cases": cases,
         })
+    total_supp = sum(len(c["supported_fields"]) for c in capabilities)
+    total_look = sum(len(c["lookup_fields"]) for c in capabilities)
+    field_coverage_pct = round((total_supp / (total_supp + total_look) * 100), 1) if (total_supp + total_look) else 100.0
+    total_models = sum(len(c["source_models"]) for c in capabilities)
+    exact_models = sum(sum(1 for m in c["source_models"] if m.get("resolution") == "EXACT") for c in capabilities)
+    model_grounding_pct = round((exact_models / total_models * 100), 1) if total_models else 100.0
+
     return {
         "schema_version": "1.0",
         "source": {"path": str(database.path), "digest": database.digest,
                    "generated_at": database.metadata().get("generated_at")},
-        "summary": {"capabilities": len(capabilities), "cases": total_cases,
-                    "configuration_constants": len(database.constants())},
+        "summary": {
+            "capabilities": len(capabilities),
+            "cases": total_cases,
+            "field_coverage_percent": field_coverage_pct,
+            "model_grounding_percent": model_grounding_pct,
+            "configuration_constants": len(database.constants()),
+            "framework_controls": len(database.framework_controls()),
+        },
         "capabilities": capabilities,
     }
 
