@@ -1481,12 +1481,17 @@ def named_fields(text: str, cap: dict[str, Any], etypes: list[str]) -> list[str]
     return sorted(set(out))
 
 
+PAM_CONTEXT_NOTE = ("How the PAM stores this data (names only, background). A rule may test only the PAM evidence "
+                    "fields listed above, never a model field, setting or constant named here:")
+
+
 def analyse(llm: Any, req: dict[str, Any], cap: dict[str, Any], etypes: list[str], *,
-            ref: dict[str, Any] | None = None) -> dict[str, Any]:
+            ref: dict[str, Any] | None = None, pam: dict[str, Any] | None = None) -> dict[str, Any]:
     """Step 1 (no grammar): the model reasons about the obligation and names the field that would test it.
     Returns {"text", "verdict": TESTABLE|NOT_TESTABLE|PERSON_JUDGES|UNCLEAR, "evidence_type", "field"}."""
     prompt = (f"Requirement: {req.get('translation_en') or req['original_text']}\n\nPAM evidence:\n"
-              f"{_evidence_brief(cap, etypes, req=req, ref=ref)}")
+              f"{_evidence_brief(cap, etypes, req=req, ref=ref)}"
+              + (f"\n\n{PAM_CONTEXT_NOTE}\n{json.dumps(pam, separators=(',', ':'))}" if pam else ""))
     text = llm.generate_text(SYSTEM_ANALYSE, prompt, max_tokens=400).content.strip()
     found = _VERDICT.findall(text)
     if not found:
@@ -1923,7 +1928,7 @@ def _cached_review(db: CatalogDb, scope: str, rid: int, proposal_key: str, spec:
 
 
 def _proposal_for(db: CatalogDb, llm: Any, req: dict[str, Any], ref: dict[str, Any], cap: dict[str, Any], *,
-                  scope: str, proposal_key: str, step: Any = None
+                  scope: str, proposal_key: str, step: Any = None, vector: Any = None
                   ) -> tuple[str | None, dict[str, Any] | None, dict[str, Any] | None, bool, dict[str, Any] | None]:
     """(raw, parsed proposal json, gap, model_called, analysis). Two model steps when the client can reason in plain
     text: analyse (no grammar) then write (RuleSpec grammar, given the analysis). For identical inputs the stored
@@ -1954,7 +1959,10 @@ def _proposal_for(db: CatalogDb, llm: Any, req: dict[str, Any], ref: dict[str, A
     if can_reason(llm):
         step("analyse")
         try:
-            analysis = analyse(llm, req, cap, relevant, ref=ref)
+            pam = vector.context(req.get("translation_en") or req["original_text"], relevant) if vector else None
+            analysis = analyse(llm, req, cap, relevant, ref=ref, pam=pam)
+            if pam:  # exactly what was sent, kept with the decision
+                analysis["pam_context"] = pam
         except LlmError as exc:
             return None, None, _gap("LLM_ERROR", f"analysis: {str(exc)[:280]}"), True, None
         gap = _analysis_gap(analysis)
@@ -2120,11 +2128,14 @@ def generate(db: CatalogDb, engine: Any, llm: Any, decisions: list[dict[str, Any
                                   "collector": catalog_digest(cap), "prompt": PROMPT_VERSION, "spec": SPEC_VERSION,
                                   "screen": SCREEN_VERSION,
                                   **({"vector_db": vector.digest} if vector else {}),
+                                  **({"pam_context": pam_vector_db.CONTEXT_VERSION}
+                                     if vector and pam_vector_db.prompt_enabled() else {}),
                                   "model": [model, model_digest]})
         record: dict[str, Any] = {"requirement_id": rid, "trigger_gap_code": d.get("gap_code")}
         raw, proposal_json, result, _called, analysis = _proposal_for(
             db, llm, req, ref, cap, scope=scope, proposal_key=proposal_key,
-            step=lambda s: tick(n - 1, s, current))
+            step=lambda s: tick(n - 1, s, current),
+            vector=vector if vector and pam_vector_db.prompt_enabled() else None)
         review: dict[str, Any] | None = None
         if result is not None and result["gap_code"] == "LLM_ERROR":
             out["llm_errors"] += 1

@@ -66,6 +66,8 @@ def main() -> int:
     p.add_argument("--opa-port", type=int, default=8181)
     p.add_argument("--api-port", type=int, default=8000)
     p.add_argument("--with-ollama", action="store_true", help="start/reuse local Ollama and verify model inference + GPU")
+    p.add_argument("--pam-names-to-llm", action="store_true",
+        help="send PAM model, field, setting and constant NAMES from vector.db to the rule-generation model")
     p.add_argument("--with-catalog-admin", action="store_true", help="enable separate host-side catalog review/upload/job API")
     p.add_argument("--catalog-admin-port", type=int, default=8001)
     p.add_argument("--ollama", help="Ollama executable (also checks PATH and the Windows install directory)")
@@ -123,6 +125,9 @@ def main() -> int:
     vector_db = ROOT / "data" / "vector.db"
     vector_env = {} if cfg.get("OPM_REGINTEL_VECTOR_DB") or not vector_db.is_file() else {
         "OPM_REGINTEL_VECTOR_DB": str(vector_db)}
+    if args.pam_names_to_llm:
+        vector_env["OPM_REGINTEL_VECTOR_PROMPT"] = "1"
+        print("PAM names from vector.db are sent to the rule-generation model", flush=True)
     if args.with_catalog_admin:
         print("PAM vector.db for rule generation: "
               f"{cfg.get('OPM_REGINTEL_VECTOR_DB') or (vector_db if vector_env else 'not used (no data/vector.db)')}", flush=True)

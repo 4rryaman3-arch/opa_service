@@ -465,6 +465,7 @@ def generate_rules(db: CatalogDb, *, actor: str, scope: str, framework_ids: list
                             job_id=job_id, publish=publish, pinned_digest=collector_capability_digest,
                             bundle_dir=None if bundle_dir is None else Path(bundle_dir),
                             store_path=None if rule_store_path is None else Path(rule_store_path), progress=report)
+    result["pam_vector_db"] = generated.get("pam_vector_db")
     # only mappings that are still approved: one withdrawn while the job ran must not block the others
     live = [m for m in generated["mapping_ids"] if db.scalar(
         "SELECT status FROM framework_control_mapping WHERE id=?", (m,)) == "APPROVED"]

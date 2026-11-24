@@ -75,4 +75,7 @@ The catalog worker reads the database named by `OPM_REGINTEL_VECTOR_DB` (`script
 3. rules get `pam_stored_null_*` cases for unused fields whose same-named source-model field may be empty; and
 4. the job result records the database digest. A new digest makes the model propose again for uncovered requirements.
 
-Nothing from `vector.db` is added to a model prompt. Vetted (non-generated) rules are not affected.
+By default nothing from `vector.db` is added to a model prompt. `scripts/run_native.py --pam-names-to-llm` (or
+`OPM_REGINTEL_VECTOR_PROMPT=1`) adds, to the analysis step only, related model, field, setting and constant **names**
+(never values, defaults, choices or source code). A hosted model receives them; what was sent is stored in the
+decision's analysis as `pam_context`. Vetted (non-generated) rules are not affected.

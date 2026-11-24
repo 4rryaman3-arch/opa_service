@@ -826,3 +826,26 @@ def test_vector_db_null_fields_add_cases_only_for_unused_fields():
     more = gr.build_cases(spec, {"max_idle": 15}, {f: "app.Model." + f for f in cat})
     assert [c for c in more if "pam_source" not in c] == base
     assert all(c["name"].removeprefix("pam_stored_null_") not in used for c in more if "pam_source" in c)
+
+
+def test_pam_context_is_opt_in_and_names_only(monkeypatch):
+    from types import SimpleNamespace
+    from regintel import pam_vector_db as pv
+    monkeypatch.delenv(pv.PROMPT_FLAG, raising=False)
+    assert not pv.prompt_enabled()
+    monkeypatch.setenv(pv.PROMPT_FLAG, "1")
+    assert pv.prompt_enabled()
+    snap = pv.GenerationSnapshot("sha256:x", 1, {}, {}, {"privileged_session": {"audit.Session": ["recorded", "idle"]}},
+                                 {"max_idle_timeout_minutes": "pam.Configurations(key=IDLE)"},
+                                 ("pam.constants.IDLE_SESSION_TIMEOUT", "pam.constants.OTHER"))
+    ctx = snap.context("Terminate a session after an idle timeout", ["privileged_session"])
+    assert ctx["models"] == {"privileged_session": {"audit.Session": ["idle"]}}  # unrelated names are left out
+    assert ctx["settings"] == {"max_idle_timeout_minutes": "pam.Configurations(key=IDLE)"}
+    assert ctx["configuration_constants"] == ["pam.constants.IDLE_SESSION_TIMEOUT"]
+    prompts = []
+    llm = SimpleNamespace(generate_text=lambda system, prompt, max_tokens: (
+        prompts.append(prompt), SimpleNamespace(content="VERDICT: NOT_TESTABLE"))[1])
+    req = {"id": 1, "original_text": "Terminate a session after an idle timeout", "translation_en": None}
+    gr.analyse(llm, req, {"evidence_detail": {}}, [])
+    gr.analyse(llm, req, {"evidence_detail": {}}, [], pam=ctx)
+    assert "IDLE_SESSION_TIMEOUT" not in prompts[0] and "IDLE_SESSION_TIMEOUT" in prompts[1]
