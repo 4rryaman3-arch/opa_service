@@ -40,7 +40,15 @@ GAP_CODES = (NON_OPERATIVE_TEXT, OUTSIDE_PAM_SCOPE, MAPPING_MISSING, POLICY_CONT
 # Rules whose evidence the PAM (Django) bridge actually collects. Automation never maps a
 # requirement to any other rule: the check could not run on real evidence. Extend only
 # after the collector schema is agreed with the Django side.
-DEFAULT_BRIDGE_COLLECTED_RULES = ("PAM-ROTATION-001", "PAM-DORMANT-001", "PAM-SESSREC-001")
+DEFAULT_BRIDGE_COLLECTED_RULES = (
+    "PAM-ROTATION-001", "PAM-DORMANT-001", "PAM-SESSREC-001",
+    "PAM-APPROVAL-001", "PAM-REVIEW-001", "PAM-AUTHFAIL-001",
+    "PAM-UNAUTH-001", "PAM-BREAKGLASS-001", "PAM-MFAACC-001",
+    "PAM-SESSIDLE-001", "PAM-SESSDUR-001", "PAM-MFACFG-001",
+    "PAM-EXCEPTION-001", "PAM-AUDITCOMP-001", "PAM-PWDCFG-001",
+    "PAM-AUDCFG-001", "PAM-BKPCFG-001", "PAM-ENDELEV-001",
+    "PAM-LOCADM-001", "PAM-APPCTRL-001", "PAM-AUDEVENT-001",
+)
 
 
 def bridge_collected_rules() -> tuple[str, ...]:
