@@ -489,6 +489,9 @@ def assign(db: CatalogDb, engine: Any, llm: Any, requirement_ids: list[int], *, 
                         "resolved": resolved, "collector": cap.get("digest"), "collected": list(collected),
                         "prompt": PROMPT_VERSION, "policy": POLICY_VERSION, "model": [model, model_digest],
                         "min_confidence": min_confidence()}
+        rejected = catalog.rejected_rules(db, rid, scope)
+        if rejected:  # a stored decision made before the withdrawal must be taken again
+            digest_input = {**digest_input, "rejected": sorted(rejected)}
         input_digest = digest_of(digest_input)
         prior = db.one("SELECT * FROM llm_mapping_decision WHERE organization_scope=? AND requirement_id=? AND "
                        "input_digest=?", (scope, rid, input_digest))
@@ -519,6 +522,10 @@ def assign(db: CatalogDb, engine: Any, llm: Any, requirement_ids: list[int], *, 
                 result = validate(db, req=req, ref=ref, proposal=proposal, cands=cands, engine=engine, cap=cap,
                                   collected=tuple(collected), resolved=resolved, existing=existing,
                                   scope=scope)
+                if result["outcome"] == "VALIDATED" and result.get("rule_id") in rejected:
+                    result = _gap("NO_EXECUTABLE_RULE", f"{result['rule_id']} was withdrawn from this requirement by a "
+                                  f"person ({rejected[result['rule_id']][:160]}); it is not linked again",
+                                  rule_id=result["rule_id"])
                 if result["outcome"] == "VALIDATED":
                     result = _publishable(db, engine, req, ref, proposal, result, scope=scope, actor=me, model=model,
                                           model_digest=model_digest, input_digest=input_digest, job_id=job_id)

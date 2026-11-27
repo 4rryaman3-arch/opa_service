@@ -14,6 +14,7 @@ rows only.
 
 from __future__ import annotations
 
+import json
 import re
 from typing import Any
 
@@ -485,6 +486,33 @@ def publish_requirements(db: CatalogDb, actor: str, requirement_ids: list[int]) 
     """Backward-compatible wrapper used by the build_framework pipeline."""
     out = publish_scoped(db, actor, requirement_ids)
     return {k: out[k] for k in ("published", "catalog_version", "requirement_ids")}
+
+
+_BULK_RESET = re.compile(r"\bgenerated rules removed\b", re.I)
+
+
+def rejected_rules(db: CatalogDb, requirement_id: int, scope: str | None) -> dict[str, str]:
+    """rule_id -> reason, for links of this requirement a person withdrew: automation must not create them again.
+    Withdrawals by automation (replacements, gates) and bulk resets ("... generated rules removed ...") are not
+    judgements about the rule. Approving the same link by hand afterwards lifts the block."""
+    out: dict[str, str] = {}
+    for m in db.q("SELECT id, rule_id FROM framework_control_mapping WHERE requirement_id=? AND status='WITHDRAWN' AND "
+                  "rule_id IS NOT NULL AND (organization_scope IS NULL OR organization_scope=?) ORDER BY id",
+                  (requirement_id, scope)):
+        for e in db.q("SELECT actor, detail FROM audit_event WHERE action='WITHDRAW' AND entity_type='mapping' AND "
+                      "entity_id=? ORDER BY id", (str(m["id"]),)):
+            detail = e["detail"] if isinstance(e["detail"], dict) else json.loads(e["detail"] or "{}")
+            reason = str(detail.get("reason") or "")
+            if e["actor"].startswith("engine:") or reason.startswith("AUTOMATED") or _BULK_RESET.search(reason):
+                continue
+            out[m["rule_id"]] = reason
+            manual = db.one("SELECT 1 AS x FROM framework_control_mapping m JOIN review_approval r ON r.entity_type="
+                            "'mapping' AND r.entity_id=m.id WHERE m.requirement_id=? AND m.rule_id=? AND m.id>? AND "
+                            "m.status='APPROVED' AND r.decision='APPROVED' AND r.reviewer NOT LIKE 'engine:%'",
+                            (requirement_id, m["rule_id"], m["id"]))
+            if manual:
+                out.pop(m["rule_id"], None)
+    return out
 
 
 def withdraw(db: CatalogDb, entity_type: str, entity_id: int, *, actor: str, reason: str,

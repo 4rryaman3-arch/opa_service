@@ -741,7 +741,7 @@
           "effective_to": null,
           "package": "securden.rules.pam_pwdcfg_001.v1_0",
           "severity": "HIGH",
-          "description": "Evaluates that password policies enforcing privileged accounts require sufficient length, complexity, and rotation.",
+          "description": "Configuration snapshot: password policies that apply to privileged accounts require sufficient length and complexity. Rotation and history are not evaluated.",
           "evidence_type": "password_policy_configuration",
           "evidence_requirements": [
             "One record per configured PasswordPolicy",
@@ -780,7 +780,7 @@
     },
     "PAM-AUDCFG-001": {
       "title": "Audit log forwarding and SIEM offload configuration",
-      "subject_field": "config_id",
+      "subject_field": "destination_id",
       "versions": {
         "1.0": {
           "status": "ACTIVE",
@@ -788,20 +788,14 @@
           "effective_to": null,
           "package": "securden.rules.pam_audcfg_001.v1_0",
           "severity": "HIGH",
-          "description": "Evaluates that PAM audit log forwarding (syslog/SIEM export) is configured and actively offloading audit records.",
+          "description": "Configuration snapshot: at least one audit forwarding destination is enabled and every enabled destination has a recorded delivery. Transport encryption is not evaluated (not in the evidence).",
           "evidence_type": "audit_forwarding_configuration",
           "evidence_requirements": [
-            "One record per syslog/SIEM forwarding destination",
-            "forwarding_enabled, destination_protocol, destination_host, facility",
-            "captured_at of the forwarding configuration snapshot"
+            "One record per forwarding destination",
+            "enabled, protocol, last_delivery_at",
+            "captured_at of the configuration snapshot"
           ],
-          "parameters": {
-            "require_encryption": {
-              "type": "boolean",
-              "default": true,
-              "description": "Require TLS/encrypted syslog transport."
-            }
-          },
+          "parameters": {},
           "framework_mappings": [
             {
               "framework": "NIST-SP-800-53",
@@ -870,20 +864,14 @@
           "effective_to": null,
           "package": "securden.rules.pam_endelev_001.v1_0",
           "severity": "MEDIUM",
-          "description": "Evaluates that endpoint privilege elevation requests require approval, justification, and application policy enforcement.",
+          "description": "Approved endpoint elevations: manual approvals are not self-approved and automatic approvals name the application. Justification is not evaluated (not in the evidence).",
           "evidence_type": "endpoint_elevation",
           "evidence_requirements": [
-            "One record per endpoint elevation event",
-            "user_id, device_id, application_name, elevation_granted, justification_provided",
-            "elevated_at"
+            "One record per endpoint elevation request",
+            "user_id, device_id, approval_status, approver_id, application_id",
+            "requested_at"
           ],
-          "parameters": {
-            "require_justification": {
-              "type": "boolean",
-              "default": true,
-              "description": "Require justification on elevation."
-            }
-          },
+          "parameters": {},
           "framework_mappings": [
             {
               "framework": "NIST-SP-800-53",
@@ -896,7 +884,7 @@
               "title": "Least Privilege | Non-Privileged Access"
             }
           ],
-          "remediation": "Enforce mandatory elevation justification in Endpoint Privilege Manager."
+          "remediation": "Require approval by someone other than the requester in Endpoint Privilege Manager."
         }
       }
     },
@@ -939,7 +927,7 @@
           "effective_to": null,
           "package": "securden.rules.pam_appctrl_001.v1_0",
           "severity": "HIGH",
-          "description": "Evaluates application control policies to ensure application execution allowlisting is active and enforced on managed endpoints.",
+          "description": "Configuration snapshot: every application control policy is enforced in allowlist or blocklist mode (monitor-only fails).",
           "evidence_type": "application_control_policy",
           "evidence_requirements": [
             "One record per configured application control policy",
@@ -968,11 +956,11 @@
           "effective_to": null,
           "package": "securden.rules.pam_audevent_001.v1_0",
           "severity": "MEDIUM",
-          "description": "Evaluates PAM activity events within the reporting period to ensure an uninterrupted, comprehensive audit trail.",
+          "description": "Audit events in the period record an event type and an outcome. Trail gaps are evaluated by PAM-AUDITCOMP-001.",
           "evidence_type": "audit_event",
           "evidence_requirements": [
             "One record per PAM activity log entry",
-            "event_id, occurred_at, event_type, outcome, actor_id, target_id"
+            "event_id, occurred_at, event_type, outcome"
           ],
           "parameters": {},
           "framework_mappings": [

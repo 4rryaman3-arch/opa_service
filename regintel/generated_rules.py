@@ -436,7 +436,7 @@ def validate(spec: RuleSpec, *, req: dict[str, Any], cap: dict[str, Any], db: Ca
 # - MA-4 e: "every recorded session has ended_at" fails every session still running when the period closes;
 # - AC-2(4), AC-6(9), AU-2 a: "event_type exists" over all audit events passes any feed; it never checks that the
 #   events the requirement names (account changes, privileged functions) are logged.
-RULE_QUALITY_VERSION = "rule-quality-v1"
+RULE_QUALITY_VERSION = "rule-quality-v2"  # v2: refused attempts
 _OPTIONAL_CONTEXT: dict[str, frozenset[str]] = {"audit_event": frozenset({"target_id", "location_id"})}
 _IN_PROGRESS_FIELDS: dict[str, frozenset[str]] = {"privileged_session": frozenset({"ended_at"})}
 _GENERAL_STREAMS = frozenset({"audit_event"})
@@ -451,6 +451,18 @@ def rule_quality_gap(spec: RuleSpec) -> str | None:
         return (f"the condition requires {context} on every {spec.evidence_type} record; those fields are "
                 "legitimately empty for many events, so compliant evidence would fail (test only fields every "
                 "in-scope record must carry, or filter the population to the events that have them)")
+    if (spec.evidence_type == "privileged_access_authentication"
+            and any(p.field in ("mfa_status", "mfa_method") for p in leaves)
+            and not any(p.field == "access_granted" and ((p.operator == "equals" and p.value is True)
+                                                         or (p.operator == "not_equals" and p.value is False))
+                        for p in spec.population.where)):
+        return ("the condition tests MFA on every attempt, including attempts that were refused access; a blocked "
+                "attempt is compliant (filter the population to access_granted = true)")
+    if spec.evidence_type == "endpoint_elevation" and any(
+            p.field == "approval_status" and p.operator in ("equals", "in")
+            and "DENIED" not in (p.value if isinstance(p.value, list) else [p.value]) for p in leaves):
+        return ("the condition requires every elevation request to be approved; a denied or pending request granted "
+                "nothing and is compliant (test how approved elevations were approved)")
     running = sorted({p.field for p in required} & _IN_PROGRESS_FIELDS.get(spec.evidence_type, frozenset()))
     if running:
         return (f"the condition requires {running} to be set; sessions still running when the period closes have "
@@ -1824,7 +1836,8 @@ def _persist_rule(db: CatalogDb, *, spec: RuleSpec, compiled: dict[str, Any], re
 
 def _activate_and_map(db: CatalogDb, engine: Any, *, row: dict[str, Any], compiled: dict[str, Any], spec: RuleSpec,
                       req: dict[str, Any], scope: str, tenant: str, actor: str, store_path: Path,
-                      proposal: Proposal, decision_digest: str, job_id: str | None) -> dict[str, Any]:
+                      proposal: Proposal, decision_digest: str, job_id: str | None,
+                      keeps: Any = None) -> dict[str, Any]:
     live = _live_mappings(db, req["id"], scope)
     ours = [m for m in live if (m["rule_id"] or "").startswith(GENERATED_RULE_PREFIX) and m["organization_scope"] == scope]
     same = [m for m in ours if m["rule_id"] == compiled["rule_id"]]
@@ -1832,6 +1845,16 @@ def _activate_and_map(db: CatalogDb, engine: Any, *, row: dict[str, Any], compil
     if others:
         return _gap("POLICY_CONFLICT", "a different live mapping exists for this requirement; it is kept",
                     conflicting_mapping_ids=others, rule_id=compiled["rule_id"])
+    rejected = catalog.rejected_rules(db, req["id"], scope)
+    if not same and compiled["rule_id"] in rejected:
+        return _gap("POLICY_CONFLICT", f"{compiled['rule_id']} was withdrawn from this requirement by a person "
+                    f"({rejected[compiled['rule_id']][:160]}); it is not linked again", rule_id=compiled["rule_id"])
+    if not same and keeps is not None:
+        kept = next((m for m in ours if m["rule_id"] not in rejected and keeps(m, compiled)), None)
+        if kept is not None:  # a live rule that still passes every gate is not swapped for a reworded proposal
+            return {"outcome": "EXISTING", "gap_code": None, "mapping_id": kept["id"], "rule_id": kept["rule_id"],
+                    "rule_version": "1.0", "message": f"kept: the live rule still passes every gate; "
+                    f"{compiled['rule_id']} was proposed"}
     _store_activate(store_path, tenant, compiled, actor)
     if row["status"] != "ACTIVE":
         with db.tx():
@@ -1876,6 +1899,29 @@ def _activate_and_map(db: CatalogDb, engine: Any, *, row: dict[str, Any], compil
     return {"outcome": "PUBLISHABLE", "gap_code": None, "mapping_id": mid, "rule_id": compiled["rule_id"],
             "rule_version": compiled["version"], "generated_rule_version_id": row["id"],
             **({"replaced_mapping_ids": replaced} if replaced else {})}
+
+
+def _still_passes(db: CatalogDb, rule_id: str, compiled: dict[str, Any], *, req: dict[str, Any], ref: dict[str, Any],
+                  cap: dict[str, Any], settings: dict[Any, Any], scope: str, tenant: str, vector: Any) -> bool:
+    """Whether the live generated rule of this requirement still passes every deterministic gate with the same values."""
+    row = db.one("SELECT * FROM generated_rule_version WHERE organization_scope=? AND tenant_id=? AND rule_id=? AND "
+                 "status='ACTIVE'", (scope, tenant, rule_id))
+    if row is None or row["structure_digest"] == compiled["structure_digest"]:
+        return False  # gone, or the same test with changed organization values: the new one replaces it
+    try:
+        spec = RuleSpec.model_validate({**row["rule_spec"], "source_requirement_ids": [req["id"]]})
+        validate(spec, req=req, cap=cap, db=db)
+        resolution = resolve(spec, req=req, settings=settings)
+    except (Gap, ValidationError):
+        return False
+    if control_hub.governed(ref) and control_hub.mapping_gap(ref, spec.evidence_type):
+        return False
+    if is_lookup(cap, spec.evidence_type) or lookup_fields_used(cap, spec):
+        return False
+    if vector and vector.not_collected(spec.evidence_type, _fields(spec)):
+        return False
+    return ({e["name"]: e["value"] for e in resolution}
+            == {e["name"]: e["value"] for e in row["parameter_resolution"]})
 
 
 def _retire_generated(db: CatalogDb, rid: int, *, scope: str, tenant: str | None, actor: str, store_path: Path,
@@ -2259,7 +2305,10 @@ def generate(db: CatalogDb, engine: Any, llm: Any, decisions: list[dict[str, Any
                 stage_counts["publish_generated_rules"] += 1
                 result = _activate_and_map(db, engine, row=row, compiled=compiled, spec=spec, req=req, scope=scope,
                                            tenant=tenant, actor=me, store_path=store_path or Path("opm.db"),
-                                           proposal=proposal, decision_digest=proposal_key, job_id=job_id)
+                                           proposal=proposal, decision_digest=proposal_key, job_id=job_id,
+                    keeps=lambda m, c, req=req, ref=ref: _still_passes(
+                        db, m["rule_id"], c, req=req, ref=ref, cap=cap, settings=settings, scope=scope,
+                        tenant=tenant, vector=vector))
         except Gap as g:
             result = _gap(g.code, g.message, **g.extra)
             if g.code == "LLM_ERROR" and g.message.startswith("judge:"):

@@ -382,7 +382,7 @@ def test_rules_listing(client):
     r = client.get("/api/v1/rules", params={"tenant_id": "tenant-a"}, headers=auth())
     assert r.status_code == 200
     rules = {x["rule_id"]: x for x in r.json()["predefined_rules"]}
-    assert len(rules) == 14
+    assert len(rules) == 21
     for rule in rules.values():
         for v in rule["versions"]:
             for key in ("rule_id", "version", "description", "evidence_requirements", "severity",

@@ -849,3 +849,63 @@ def test_pam_context_is_opt_in_and_names_only(monkeypatch):
     gr.analyse(llm, req, {"evidence_detail": {}}, [])
     gr.analyse(llm, req, {"evidence_detail": {}}, [], pam=ctx)
     assert "IDLE_SESSION_TIMEOUT" not in prompts[0] and "IDLE_SESSION_TIMEOUT" in prompts[1]
+
+
+def test_person_withdrawn_generated_link_is_not_created_again(gen):
+    env, ids, run, _submit, _model, _digest, _store = gen
+    first = by_req(run("withdraw-1"))
+    rid = next(r for r, d in first.items() if d["outcome"] == gr.GENERATED_RULE_ACTIVATED)
+    m = env.db.one("SELECT * FROM framework_control_mapping WHERE requirement_id=? AND status='APPROVED' AND rule_id "
+                   "LIKE 'PAM-GEN-%'", (rid,))
+    catalog.withdraw(env.db, "mapping", m["id"], actor="bob", reason="does not test this requirement")
+    assert list(catalog.rejected_rules(env.db, rid, SCOPE_A)) == [m["rule_id"]]
+    run("withdraw-2")
+    assert env.db.one("SELECT 1 AS x FROM framework_control_mapping WHERE requirement_id=? AND status='APPROVED' AND "
+                      "rule_id=?", (rid, m["rule_id"])) is None
+
+
+def test_bulk_reset_and_engine_withdrawals_do_not_block(gen):
+    env, ids, run, _submit, _model, _digest, _store = gen
+    first = by_req(run("bulk-reset-1"))
+    rid = next(r for r, d in first.items() if d["outcome"] == gr.GENERATED_RULE_ACTIVATED)
+    m = env.db.one("SELECT * FROM framework_control_mapping WHERE requirement_id=? AND status='APPROVED' AND rule_id "
+                   "LIKE 'PAM-GEN-%'", (rid,))
+    catalog.withdraw(env.db, "mapping", m["id"], actor="bob", reason="Generated rules removed before regeneration.")
+    assert catalog.rejected_rules(env.db, rid, SCOPE_A) == {}
+    run("bulk-reset-2")
+    assert env.db.one("SELECT 1 AS x FROM framework_control_mapping WHERE requirement_id=? AND status='APPROVED' AND "
+                      "rule_id=?", (rid, m["rule_id"]))
+
+
+def test_rules_that_fail_refused_attempts_are_rejected():
+    def mfa(where):
+        return gr.RuleSpec.model_validate(_spec(
+            1, pam_control_id="PAMC-MFA-PRIVILEGED", evidence_type="privileged_access_authentication",
+            subject_field="access_id", population={"type": "ORGANIZATION_SUPPORTED_ENTITIES",
+                                                   "period_field": "accessed_at", "where": where},
+            condition={"field": "mfa_status", "operator": "equals", "value": "VERIFIED"}))
+    assert "refused access" in gr.rule_quality_gap(mfa([]))
+    assert gr.rule_quality_gap(mfa([{"field": "access_granted", "operator": "equals", "value": True}])) is None
+    elevation = gr.RuleSpec.model_validate(_spec(
+        1, evidence_type="endpoint_elevation", subject_field="elevation_id",
+        population={"type": "ORGANIZATION_SUPPORTED_ENTITIES", "period_field": "requested_at", "where": []},
+        condition={"field": "approval_status", "operator": "in", "value": ["APPROVED", "AUTO_APPROVED"]}))
+    assert "denied or pending" in gr.rule_quality_gap(elevation)
+
+
+def test_live_rule_is_kept_unless_it_stops_passing(gen):
+    env, ids, run, _submit, _model, _digest, _store = gen
+    first = by_req(run("keep-live-1"))
+    rid = next(r for r, d in first.items() if d["outcome"] == gr.GENERATED_RULE_ACTIVATED)
+    m = env.db.one("SELECT * FROM framework_control_mapping WHERE requirement_id=? AND status='APPROVED' AND rule_id "
+                   "LIKE 'PAM-GEN-%'", (rid,))
+    req = env.db.one("SELECT * FROM regulatory_requirement WHERE id=?", (rid,))
+    from regintel import policy_contexts as pctx
+    cap = pctx.capabilities(env.db, SCOPE_A, "acme")
+    kw = dict(req=req, ref={}, cap=cap, settings=gr.in_force_settings(env.db, SCOPE_A, "acme"), scope=SCOPE_A,
+              tenant="acme", vector=None)
+    row = env.db.one("SELECT * FROM generated_rule_version WHERE rule_id=?", (m["rule_id"],))
+    assert gr._still_passes(env.db, m["rule_id"], {"structure_digest": "sha256:other"}, **kw)
+    assert not gr._still_passes(env.db, m["rule_id"], {"structure_digest": row["structure_digest"]}, **kw)
+    assert not gr._still_passes(env.db, m["rule_id"], {"structure_digest": "sha256:other"},
+                                **{**kw, "cap": {**cap, "evidence_detail": {}}})
