@@ -351,6 +351,16 @@ def create_admin_app(settings: Settings | None = None, *, start_worker=True):
                             'auto_publish_validated_rules': generated_rules.publish_enabled(),
                             'compiler_version': generated_rules.COMPILER_VERSION,
                             'spec_version': generated_rules.SPEC_VERSION,
+                        },
+                        reports={
+                            'available': bool(engine and engine.bundle_version),
+                            'supported_reports': [
+                                'combined_compliance_report',
+                                'framework_assessment_report',
+                                'iso_27001_compliance_report',
+                                'pci_dss_compliance_report',
+                            ],
+                            'supported_formats': ['PDF', 'CSV', 'XLSX'],
                         })
 
     @app.get(PREFIX+'/sources')

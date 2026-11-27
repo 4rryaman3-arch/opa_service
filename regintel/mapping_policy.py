@@ -267,12 +267,12 @@ TOPICS: tuple[tuple[str, re.Pattern[str], str | None, tuple[str, ...]], ...] = (
      re.compile(r"\b(?:purge|wipe)\b[^.;]{0,80}\bmobile devices?\b", re.I), None, ()),
     ("separation of duties",
      re.compile(r"\b(?:separation|segregation) of duties\b|\bduties of individuals requiring separation\b", re.I),
-     None, ()),
+     "PAM-EXCEPTION-001", ()),
     ("password composition and blocklists",
      re.compile(r"\bcomposition and complexity\b|\bcommonly-used, expected, or compromised passwords\b", re.I),
-     None, ()),
+     "PAM-PWDCFG-001", ()),
     ("audit record content, review, retention or protection (beyond log completeness)",
-     re.compile(r"\baudit (?:records?|information|logging)\b", re.I), None, ()),
+     re.compile(r"\baudit (?:records?|information|logging)\b", re.I), "PAM-AUDEVENT-001", ()),
 )
 
 # NIST-style organization-defined parameters: "[Assignment: organization-defined ...]" and
