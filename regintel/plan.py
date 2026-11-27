@@ -378,6 +378,7 @@ def template_summary(plan: dict[str, Any]) -> dict[str, Any]:
         "unmapped_requirements": totals["unmapped_requirements"], "blocked_requirements": totals["blocked_requirements"],
         "mapping_count": totals["mapping_count"], "execution_count": totals["execution_count"],
         "readiness": plan["readiness"], "blockers": plan["blockers"],
+        "report_available": totals["automated_requirements"] > 0,
     }
 
 
@@ -422,6 +423,7 @@ class TemplateItem(_Out):
     mapping_count: int
     execution_count: int
     readiness: Literal["NOT_READY", "PARTIAL", "READY"]
+    report_available: bool = False
     blockers: list[Blocker]
     # Django rewrite contract 1.0 (additive)
     assessable_requirements: int | None = None

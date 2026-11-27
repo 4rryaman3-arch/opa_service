@@ -1211,5 +1211,19 @@
     "require_integrity_verified": "pam.SyslogServer / audit.UserActivity",
     "require_mfa": "usermanagement.UserMFAConfig.is_enabled",
     "max_idle_timeout_minutes": "pam.Configurations(key=IDLE_SESSION_TIMEOUT)"
+  },
+  "reports": {
+    "available": true,
+    "supported_reports": [
+      "combined_compliance_report",
+      "framework_assessment_report",
+      "iso_27001_compliance_report",
+      "pci_dss_compliance_report"
+    ],
+    "supported_formats": [
+      "PDF",
+      "CSV",
+      "XLSX"
+    ]
   }
 }
