@@ -9,6 +9,7 @@ from __future__ import annotations
 import hashlib
 import json
 import os
+import re
 import sqlite3
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
@@ -456,17 +457,52 @@ def validate_test_vectors(vectors: dict[str, Any]) -> dict[str, Any]:
 
 # ---------------------------------------------------------------- use by rule generation
 
+PROMPT_FLAG = "OPM_REGINTEL_VECTOR_PROMPT"
+CONTEXT_VERSION = "pam-context-v1"
+_STOP = frozenset("the and for are that with this from must shall not any all use used user users system systems id "
+                  "account accounts data information organization type name status value time requirement control "
+                  "access".split())
+
+
+def prompt_enabled() -> bool:
+    """True when the operator allows PAM names from vector.db in model prompts (a hosted model receives them)."""
+    return os.environ.get(PROMPT_FLAG, "").strip().lower() in ("1", "true", "yes", "on")
+
+
+def _words(text: str) -> set[str]:
+    spaced = re.sub(r"([a-z0-9])([A-Z])", r"\1 \2", text)
+    found = (w.lower() for w in re.findall(r"[A-Za-z]{3,}", spaced.replace("_", " ")))
+    return {w[:-1] if len(w) > 4 and w.endswith("s") and not w.endswith("ss") else w for w in found if w not in _STOP}
+
 ENV_PATH = "OPM_REGINTEL_VECTOR_DB"
 
 
 @dataclass(frozen=True)
 class GenerationSnapshot:
-    """What rule generation uses of one validated vector.db. Local only: nothing here enters a model prompt."""
+    """What rule generation uses of one validated vector.db. Only ``context`` may enter a model prompt (names only,
+    and only when PROMPT_FLAG is set)."""
 
     digest: str
     schema_tests: int
     collected: dict[str, frozenset[str]]
     stored_null: dict[str, dict[str, str]] = field(default_factory=dict)  # evidence type -> field -> PAM model field
+    models: dict[str, dict[str, list[str]]] = field(default_factory=dict)  # evidence type -> model label -> fields
+    settings: dict[str, str] = field(default_factory=dict)  # OPM setting -> PAM source expression
+    constant_names: tuple[str, ...] = ()
+
+    def context(self, text: str, evidence_types: list[str]) -> dict[str, Any]:
+        """PAM names related to one requirement: models and fields behind the offered evidence types, and settings and
+        configuration constants sharing words with the requirement. Names only: never a value, default or choice."""
+        words = _words(text)
+        models: dict[str, Any] = {}
+        for etype in evidence_types:
+            models[etype] = {}
+            for label, names in sorted(self.models.get(etype, {}).items())[:6]:
+                ranked = sorted(names, key=lambda n: (-len(words & _words(n)), n))
+                models[etype][label] = [n for n in ranked if words & _words(n)][:10]  # related names only
+        settings = {k: v for k, v in sorted(self.settings.items()) if words & _words(k)}
+        hits = sorted(((len(words & _words(n)), n) for n in self.constant_names), key=lambda x: (-x[0], x[1]))
+        return {"models": models, "settings": settings, "configuration_constants": [n for c, n in hits if c >= 2][:10]}
 
     def not_collected(self, evidence_type: str, fields: set[str]) -> list[str]:
         """Fields (or the whole type) a rule needs that vector.db does not list as collected."""
@@ -486,7 +522,7 @@ def load_for_generation() -> GenerationSnapshot | None:
         result = validate_test_vectors(vectors)
         if result["failed"] or not result["passed"]:
             raise PamVectorDbError(f"vector.db schema tests failed: {result['failures'][:5]}")
-        collected, stored_null = {}, {}
+        collected, stored_null, models = {}, {}, {}
         for c in vectors["capabilities"]:
             etype = c["evidence_type"]
             if c["collection_status"] == "COLLECTED":
@@ -494,4 +530,8 @@ def load_for_generation() -> GenerationSnapshot | None:
             # only a source-model field of exactly the same name counts; anything looser would be a guess
             stored_null[etype] = {f["name"]: f"{m['resolved_label']}.{f['name']}" for m in c["source_models"]
                                   if m["resolution"] == "EXACT" for f in m["fields"] if f["null"]}
-        return GenerationSnapshot(database.digest, result["passed"], collected, stored_null)
+            models[etype] = {m["resolved_label"]: [f["name"] for f in m["fields"]]
+                             for m in c["source_models"] if m["resolution"] == "EXACT"}
+        return GenerationSnapshot(database.digest, result["passed"], collected, stored_null, models,
+                                  database.setting_sources(),
+                                  tuple(f"{c['module']}.{c['name']}" for c in database.constants()))
